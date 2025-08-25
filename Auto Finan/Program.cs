@@ -2173,12 +2173,12 @@ namespace AutoFinan
             }
         }
 
-        private bool IsBankCardField(string headerName)
-        {
-            // 检查是否是银行卡相关字段
-            string[] bankCardFields = { "转卡信息工号", "卡号尾号", "银行卡", "银行账号" };
-            return bankCardFields.Any(field => headerName.Contains(field));
-        }
+                 private bool IsBankCardField(string headerName)
+         {
+             // 检查是否是银行卡相关字段
+             string[] bankCardFields = { "转卡信息工号", "卡号尾号", "银行卡", "银行账号", "差旅转卡工号" };
+             return bankCardFields.Any(field => headerName.Contains(field));
+         }
 
         private async Task TriggerBankCardSelection(ILocator inputElement)
         {
@@ -2301,12 +2301,12 @@ namespace AutoFinan
                 // 目标URL（电子科技大学财务系统）
                 string targetUrl = "https://cwcx.uestc.edu.cn/WFManager/home.jsp";
                 
-                await page.GotoAsync(targetUrl);
+                await page.GotoAsync(targetUrl, new PageGotoOptions { Timeout = 30000 });
                 
                 Console.WriteLine($"成功导航到页面: {targetUrl}");
                 
                 // 等待页面加载完成
-                await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 30000 });
                 
                 Console.WriteLine("页面加载完成");
             }
