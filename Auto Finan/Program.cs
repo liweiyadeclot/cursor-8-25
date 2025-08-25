@@ -38,11 +38,12 @@ namespace AutoFinan
     {
         private const string ExcelFilePath = "报销信息.xlsx";
         private const string MappingFilePath = "标题-ID.xlsx";
-        private const string SheetName = "BaoXiao_sheet";
+        private const string SheetName = "ChaiLv_sheet";
         private const string MappingSheetName = "Sheet1"; // 标题-ID映射表的工作表名
         private const string SubsequenceStartColumn = "子序列开始";
         private const string SubsequenceEndColumn = "子序列结束";
         private const string SubsequenceMarker = "是";
+        private const string SubsequenceMarker2 = "1"; // 第二种子序列的标记
 
         private Dictionary<string, string> titleIdMapping;
         private Dictionary<string, Dictionary<string, string>> dropdownMappings;
@@ -50,6 +51,8 @@ namespace AutoFinan
         private IBrowser browser;
         private IPage page;
         private string currentSubjectId; // 存储当前科目ID，用于金额填写
+        private bool isInSecondSubsequence = false; // 标记是否在第二种子序列中
+        private int subsequenceRowIndex = 0; // 第二种子序列中的行序号（从0开始）
 
         public async Task RunAsync()
         {
@@ -147,19 +150,30 @@ namespace AutoFinan
                 }
 
                 // 找到子序列相关列的索引
-                int subsequenceStartColIndex = -1;
-                int subsequenceEndColIndex = -1;
+                var subsequenceStartColumns = new List<int>();
+                var subsequenceEndColumns = new List<int>();
+                
+                Console.WriteLine("查找子序列相关列...");
+                Console.WriteLine($"要查找的子序列开始列名: '{SubsequenceStartColumn}'");
+                Console.WriteLine($"要查找的子序列结束列名: '{SubsequenceEndColumn}'");
                 
                 for (int i = 0; i < headers.Count; i++)
                 {
+                    Console.WriteLine($"  列 {GetColumnName(i + 1)}: '{headers[i]}'");
                     if (headers[i] == SubsequenceStartColumn)
-                        subsequenceStartColIndex = i + 1;
+                    {
+                        subsequenceStartColumns.Add(i + 1);
+                        Console.WriteLine($"    找到子序列开始列: {GetColumnName(i + 1)} (索引: {i + 1})");
+                    }
                     else if (headers[i] == SubsequenceEndColumn)
-                        subsequenceEndColIndex = i + 1;
+                    {
+                        subsequenceEndColumns.Add(i + 1);
+                        Console.WriteLine($"    找到子序列结束列: {GetColumnName(i + 1)} (索引: {i + 1})");
+                    }
                 }
 
-                Console.WriteLine($"子序列开始列: {GetColumnName(subsequenceStartColIndex)} (索引: {subsequenceStartColIndex})");
-                Console.WriteLine($"子序列结束列: {GetColumnName(subsequenceEndColIndex)} (索引: {subsequenceEndColIndex})");
+                Console.WriteLine($"找到 {subsequenceStartColumns.Count} 个子序列开始列: {string.Join(", ", subsequenceStartColumns.Select(i => GetColumnName(i)))}");
+                Console.WriteLine($"找到 {subsequenceEndColumns.Count} 个子序列结束列: {string.Join(", ", subsequenceEndColumns.Select(i => GetColumnName(i)))}");
 
                 // 第一层循环：从上至下，读取每一行数据（广义上的行）
                 Console.WriteLine("\n=== 开始第一层循环：处理每一行数据 ===");
@@ -180,24 +194,55 @@ namespace AutoFinan
                         Console.WriteLine($"  读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
                         
                         // 检查是否遇到子序列开始标记
-                        if (col == subsequenceStartColIndex && cellValue == SubsequenceMarker)
+                        Console.WriteLine($"      当前列 {col}，子序列开始列列表: [{string.Join(", ", subsequenceStartColumns)}]，是否包含当前列: {subsequenceStartColumns.Contains(col)}");
+                        if (subsequenceStartColumns.Contains(col))
                         {
-                            Console.WriteLine($"检测到子序列开始标记，进入子序列处理逻辑");
-                            int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, subsequenceStartColIndex, subsequenceEndColIndex);
+                            Console.WriteLine($"      检查子序列开始标记：当前列 {col}，单元格值 '{cellValue}'，第一种子序列标记 '{SubsequenceMarker}'，第二种子序列标记 '{SubsequenceMarker2}'");
                             
-                            // 如果子序列处理返回了下一行的行号，继续处理那一行
-                            if (nextRow > 0)
+                            if (cellValue == SubsequenceMarker)
                             {
-                                Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
-                                await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
+                                Console.WriteLine($"检测到第一种子序列开始标记，进入子序列处理逻辑");
+                                // 找到对应的子序列结束列
+                                int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                                int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
                                 
-                                // 更新外层循环的行号，跳过已经处理过的行
-                                row = nextRow;
+                                // 如果子序列处理返回了下一行的行号，继续处理那一行
+                                if (nextRow > 0)
+                                {
+                                    Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
+                                    await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
+                                    
+                                    // 更新外层循环的行号，跳过已经处理过的行
+                                    row = nextRow;
+                                }
+                                break; // 跳出当前行的列循环，继续处理下一行
                             }
-                            break; // 跳出当前行的列循环，继续处理下一行
+                            else if (cellValue == SubsequenceMarker2)
+                            {
+                                Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
+                                // 找到对应的子序列结束列
+                                int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                                int nextRow = await ProcessSecondSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
+                                
+                                // 如果子序列处理返回了下一行的行号，继续处理那一行
+                                if (nextRow > 0)
+                                {
+                                    Console.WriteLine($"第二种子序列处理完成，继续处理第 {nextRow} 行");
+                                    await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
+                                    
+                                    // 更新外层循环的行号，跳过已经处理过的行
+                                    row = nextRow;
+                                }
+                                break; // 跳出当前行的列循环，继续处理下一行
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      子序列开始列的值 '{cellValue}' 不匹配任何子序列标记");
+                            }
                         }
                         
-                        if (!string.IsNullOrEmpty(cellValue))
+                        // 如果不是子序列开始列，则正常处理单元格
+                        if (!subsequenceStartColumns.Contains(col) && !string.IsNullOrEmpty(cellValue))
                         {
                             await ProcessCell(columnName, row, headerName, cellValue);
                         }
@@ -277,7 +322,7 @@ namespace AutoFinan
 
         private async Task<int> ProcessSubsequence(ExcelWorksheet worksheet, List<string> headers, int startRow, int totalRows, int subsequenceStartColIndex, int subsequenceEndColIndex)
         {
-            Console.WriteLine($"\n=== 进入第三层循环：子序列处理逻辑 ===");
+            Console.WriteLine($"\n=== 进入第三层循环：第一种子序列处理逻辑 ===");
             Console.WriteLine($"子序列处理从第 {startRow} 行开始");
             
             // 第三层循环：从上至下，处理子序列中的每一行
@@ -329,6 +374,77 @@ namespace AutoFinan
             return totalRows + 1; // 如果没有找到子序列结束标记，返回下一行
         }
 
+        private async Task<int> ProcessSecondSubsequence(ExcelWorksheet worksheet, List<string> headers, int startRow, int totalRows, int subsequenceStartColIndex, int subsequenceEndColIndex)
+        {
+            Console.WriteLine($"\n=== 进入第三层循环：第二种子序列处理逻辑 ===");
+            Console.WriteLine($"第二种子序列处理从第 {startRow} 行开始");
+            
+            // 设置第二种子序列标记
+            isInSecondSubsequence = true;
+            subsequenceRowIndex = 0; // 从0开始计数
+            
+            // 第三层循环：从上至下，处理子序列中的每一行
+            for (int row = startRow; row <= totalRows; row++)
+            {
+                Console.WriteLine($"\n--- 处理第二种子序列第 {row} 行（子序列内序号：{subsequenceRowIndex}） ---");
+                
+                // 只处理子序列范围内的列（从子序列开始列的下一列到子序列结束列的前一列）
+                int startCol = subsequenceStartColIndex + 1; // 从子序列开始列的下一列开始
+                int endCol = subsequenceEndColIndex > 0 ? subsequenceEndColIndex - 1 : headers.Count; // 到子序列结束列的前一列结束
+                
+                Console.WriteLine($"    第二种子序列处理范围：从列 {GetColumnName(startCol)} 到列 {GetColumnName(endCol)}");
+                
+                // 处理子序列范围内的列（从左至右）
+                for (int col = startCol; col <= endCol; col++)
+                {
+                    var cellValue = worksheet.Cells[row, col].Value?.ToString() ?? "";
+                    var columnName = GetColumnName(col);
+                    var headerName = headers[col - 1];
+                    
+                    Console.WriteLine($"    第二种子序列处理：读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
+                    
+                    if (!string.IsNullOrEmpty(cellValue))
+                    {
+                        await ProcessCell(columnName, row, headerName, cellValue);
+                    }
+                }
+                
+                Console.WriteLine($"第二种子序列第 {row} 行处理完成");
+                
+                // 检查当前行的子序列结束列是否标记为"1"
+                if (subsequenceEndColIndex > 0)
+                {
+                    var currentRowSubsequenceEndValue = worksheet.Cells[row, subsequenceEndColIndex].Value?.ToString() ?? "";
+                    if (currentRowSubsequenceEndValue == SubsequenceMarker2)
+                    {
+                        Console.WriteLine($"检测到当前行({row})的第二种子序列结束标记，结束子序列处理");
+                        Console.WriteLine($"程序将从第 {row} 行继续正常处理逻辑");
+                        
+                        // 重置第二种子序列标记
+                        isInSecondSubsequence = false;
+                        subsequenceRowIndex = 0;
+                        
+                        return row; // 返回当前行的行号
+                    }
+                    else
+                    {
+                        Console.WriteLine($"当前行({row})的子序列结束列未标记为'1'，继续处理下一行");
+                    }
+                }
+                
+                // 增加子序列内行序号
+                subsequenceRowIndex++;
+            }
+            
+            Console.WriteLine("=== 第二种子序列处理逻辑结束 ===");
+            
+            // 重置第二种子序列标记
+            isInSecondSubsequence = false;
+            subsequenceRowIndex = 0;
+            
+            return totalRows + 1; // 如果没有找到子序列结束标记，返回下一行
+        }
+
         private async Task ProcessCell(string columnName, int row, string headerName, string cellValue)
         {
             // 这里实现具体的单元格处理逻辑
@@ -373,12 +489,12 @@ namespace AutoFinan
                 Console.WriteLine($"      检测到下拉框选择操作: {headerName} = {cellValue}");
                 await SelectDropdown(headerName, cellValue);
             }
-            // 7. 日期选择操作（格式：yyyy-mm-dd）
-            else if (IsDate(cellValue))
-            {
-                Console.WriteLine($"      检测到日期选择操作: {cellValue}");
-                await SelectDate(headerName, cellValue);
-            }
+                         // 7. 日期选择操作（日期字段或格式：yyyy-mm-dd）
+             else if (IsDateField(headerName) || IsDate(cellValue))
+             {
+                 Console.WriteLine($"      检测到日期选择操作: {cellValue}");
+                 await SelectDate(headerName, cellValue);
+             }
             // 8. 金额输入框操作（需要与科目配对）
             else if (headerName == "金额" && !string.IsNullOrEmpty(currentSubjectId))
             {
@@ -853,63 +969,529 @@ namespace AutoFinan
             }
         }
 
-        private async Task ClickRadioButton(string radioValue)
-        {
-            try
-            {
-                string elementId = GetElementId(radioValue);
-                if (string.IsNullOrEmpty(elementId))
-                {
-                    Console.WriteLine($"      警告：未找到Radio值 '{radioValue}' 对应的元素ID");
-                    return;
-                }
+                 private async Task ClickRadioButton(string radioValue)
+         {
+             try
+             {
+                 string elementId = GetElementId(radioValue);
+                 if (string.IsNullOrEmpty(elementId))
+                 {
+                     Console.WriteLine($"      警告：未找到Radio值 '{radioValue}' 对应的元素ID");
+                     return;
+                 }
 
-                Console.WriteLine($"      点击Radio按钮: {radioValue} -> {elementId}");
-                
-                // 这里应该实现实际的Radio按钮点击逻辑
-                Console.WriteLine($"      执行：点击Radio按钮 {elementId}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"      点击Radio按钮失败: {ex.Message}");
-            }
-        }
+                 Console.WriteLine($"      点击Radio按钮: {radioValue} -> {elementId}");
+                 
+                 // 实现实际的Radio按钮点击逻辑
+                 bool clicked = false;
+                 
+                 // 等待页面完全加载
+                 await Task.Delay(500);
+                 
+                 // 方法1: 优先在iframe中通过value属性查找
+                 var frames = page.Frames;
+                 foreach (var frame in frames)
+                 {
+                     try
+                     {
+                         var radioElement = frame.Locator($"input[type='radio'][name='{elementId}'][value='{elementId}']").First;
+                         if (await radioElement.CountAsync() > 0)
+                         {
+                             await radioElement.ClickAsync();
+                             Console.WriteLine($"      在iframe中通过value成功点击Radio按钮: {elementId}");
+                             clicked = true;
+                             break;
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"      在iframe中通过value查找Radio按钮失败: {ex.Message}");
+                         continue;
+                     }
+                 }
+                 
+                 // 方法2: 在iframe中通过ID查找
+                 if (!clicked)
+                 {
+                     foreach (var frame in frames)
+                     {
+                         try
+                         {
+                             var radioElement = frame.Locator($"#{elementId}").First;
+                             if (await radioElement.CountAsync() > 0)
+                             {
+                                 await radioElement.ClickAsync();
+                                 Console.WriteLine($"      在iframe中通过ID成功点击Radio按钮: {elementId}");
+                                 clicked = true;
+                                 break;
+                             }
+                         }
+                         catch (Exception ex)
+                         {
+                             Console.WriteLine($"      在iframe中通过ID查找Radio按钮失败: {ex.Message}");
+                             continue;
+                         }
+                     }
+                 }
+                 
+                 // 方法3: 在主页面通过value属性查找
+                 if (!clicked)
+                 {
+                     try
+                     {
+                         var radioElement = page.Locator($"input[type='radio'][name='{elementId}'][value='{elementId}']").First;
+                         if (await radioElement.CountAsync() > 0)
+                         {
+                             await radioElement.ClickAsync();
+                             Console.WriteLine($"      在主页面通过value成功点击Radio按钮: {elementId}");
+                             clicked = true;
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"      在主页面通过value查找Radio按钮失败: {ex.Message}");
+                     }
+                 }
+                 
+                 // 方法4: 在主页面通过ID查找
+                 if (!clicked)
+                 {
+                     try
+                     {
+                         await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                         await page.ClickAsync($"#{elementId}");
+                         Console.WriteLine($"      在主页面通过ID成功点击Radio按钮: {elementId}");
+                         clicked = true;
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"      在主页面通过ID查找Radio按钮失败: {ex.Message}");
+                     }
+                 }
+                 
+                 // 方法5: 尝试通过文本内容查找
+                 if (!clicked)
+                 {
+                     try
+                     {
+                         // 查找包含指定文本的span元素，然后找到其父级的radio按钮
+                         var spanElement = page.Locator($"span:has-text('{radioValue}')").First;
+                         if (await spanElement.CountAsync() > 0)
+                         {
+                             // 找到span的父级li元素中的radio按钮
+                             var radioElement = spanElement.Locator("xpath=../input[@type='radio']").First;
+                             if (await radioElement.CountAsync() > 0)
+                             {
+                                 await radioElement.ClickAsync();
+                                 Console.WriteLine($"      通过文本内容成功点击Radio按钮: {radioValue}");
+                                 clicked = true;
+                             }
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"      通过文本内容查找Radio按钮失败: {ex.Message}");
+                     }
+                 }
+                 
+                 // 方法6: 尝试其他选择器
+                 if (!clicked)
+                 {
+                     string[] alternativeSelectors = {
+                         $"input[type='radio'][value*='{elementId}']",
+                         $"input[type='radio'][name*='{elementId}']",
+                         $"input[type='radio']:has-text('{radioValue}')"
+                     };
+                     
+                     foreach (string selector in alternativeSelectors)
+                     {
+                         try
+                         {
+                             // 在iframe中查找
+                             foreach (var frame in frames)
+                             {
+                                 try
+                                 {
+                                     var radioElement = frame.Locator(selector).First;
+                                     if (await radioElement.CountAsync() > 0)
+                                     {
+                                         await radioElement.ClickAsync();
+                                         Console.WriteLine($"      在iframe中使用备用选择器成功点击Radio按钮: {selector}");
+                                         clicked = true;
+                                         break;
+                                     }
+                                 }
+                                 catch (Exception ex)
+                                 {
+                                     continue;
+                                 }
+                             }
+                             
+                             if (clicked) break;
+                             
+                             // 在主页面查找
+                             try
+                             {
+                                 var radioElement = page.Locator(selector).First;
+                                 if (await radioElement.CountAsync() > 0)
+                                 {
+                                     await radioElement.ClickAsync();
+                                     Console.WriteLine($"      在主页面使用备用选择器成功点击Radio按钮: {selector}");
+                                     clicked = true;
+                                     break;
+                                 }
+                             }
+                             catch (Exception ex)
+                             {
+                                 continue;
+                             }
+                         }
+                         catch (Exception ex)
+                         {
+                             Console.WriteLine($"      备用选择器 {selector} 失败: {ex.Message}");
+                             continue;
+                         }
+                     }
+                 }
+                 
+                 if (!clicked)
+                 {
+                     Console.WriteLine($"      最终失败：无法找到Radio按钮 {elementId}");
+                 }
+                 
+                 // 等待Radio按钮点击后的页面加载
+                 await Task.Delay(1000);
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"      点击Radio按钮失败: {ex.Message}");
+             }
+         }
 
-        private async Task SelectDate(string headerName, string dateValue)
-        {
-            try
-            {
-                string elementId = GetElementId(headerName);
-                if (string.IsNullOrEmpty(elementId))
-                {
-                    Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的日期控件ID");
-                    return;
-                }
+                                   private async Task SelectDate(string headerName, string dateValue)
+          {
+              try
+              {
+                  string elementId = GetElementId(headerName);
+                  if (string.IsNullOrEmpty(elementId))
+                  {
+                      Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的日期控件ID");
+                      return;
+                  }
 
-                Console.WriteLine($"      选择日期: {headerName} -> {elementId} = {dateValue}");
-                
-                // 这里应该实现实际的日期选择逻辑
-                // 使用jQuery日历控件选择日期
-                Console.WriteLine($"      执行：使用jQuery日历控件选择日期 {elementId} = {dateValue}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"      选择日期失败: {ex.Message}");
-            }
-        }
+                  Console.WriteLine($"      选择日期: {headerName} -> {elementId} = {dateValue}");
+                  
+                  // 实现实际的日期选择逻辑
+                  bool selected = false;
+                  
+                  // 方法1: 优先在iframe中查找日期输入框
+                  var frames = page.Frames;
+                  foreach (var frame in frames)
+                  {
+                      try
+                      {
+                          var dateElement = frame.Locator($"#{elementId}").First;
+                          if (await dateElement.CountAsync() > 0)
+                          {
+                              // 点击日期输入框以触发日历控件
+                              await dateElement.ClickAsync();
+                              Console.WriteLine($"      在iframe中点击日期输入框 {elementId} 触发日历控件");
+                              
+                              // 等待日历控件出现
+                              await Task.Delay(2000);
+                              
+                              // 尝试通过JavaScript直接设置日期值
+                              try
+                              {
+                                  await frame.EvaluateAsync($"document.getElementById('{elementId}').value = '{dateValue}'");
+                                  Console.WriteLine($"      在iframe中通过JavaScript设置日期 {elementId}: {dateValue}");
+                                  
+                                  // 触发change事件
+                                  await frame.EvaluateAsync($"document.getElementById('{elementId}').dispatchEvent(new Event('change', {{ bubbles: true }}))");
+                                  Console.WriteLine($"      在iframe中触发change事件 {elementId}");
+                                  
+                                  selected = true;
+                                  break;
+                              }
+                              catch (Exception jsEx)
+                              {
+                                  Console.WriteLine($"      通过JavaScript设置日期失败: {jsEx.Message}");
+                                  
+                                  // 如果JavaScript方法失败，尝试通过日历控件选择日期
+                                  selected = await SelectDateFromCalendar(frame, dateValue);
+                                  if (selected) break;
+                              }
+                          }
+                      }
+                      catch (Exception ex)
+                      {
+                          Console.WriteLine($"      在iframe中查找日期输入框失败: {ex.Message}");
+                          continue;
+                      }
+                  }
+                  
+                  // 方法2: 如果iframe中找不到，尝试在主页面查找
+                  if (!selected)
+                  {
+                      try
+                      {
+                          await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                          
+                          // 点击日期输入框以触发日历控件
+                          await page.ClickAsync($"#{elementId}");
+                          Console.WriteLine($"      在主页面点击日期输入框 {elementId} 触发日历控件");
+                          
+                          // 等待日历控件出现
+                          await Task.Delay(2000);
+                          
+                          // 尝试通过JavaScript直接设置日期值
+                          try
+                          {
+                              await page.EvaluateAsync($"document.getElementById('{elementId}').value = '{dateValue}'");
+                              Console.WriteLine($"      在主页面通过JavaScript设置日期 {elementId}: {dateValue}");
+                              
+                              // 触发change事件
+                              await page.EvaluateAsync($"document.getElementById('{elementId}').dispatchEvent(new Event('change', {{ bubbles: true }}))");
+                              Console.WriteLine($"      在主页面触发change事件 {elementId}");
+                              
+                              selected = true;
+                          }
+                          catch (Exception jsEx)
+                          {
+                              Console.WriteLine($"      通过JavaScript设置日期失败: {jsEx.Message}");
+                              
+                              // 如果JavaScript方法失败，尝试通过日历控件选择日期
+                              selected = await SelectDateFromCalendar(page, dateValue);
+                          }
+                      }
+                      catch (Exception ex)
+                      {
+                          Console.WriteLine($"      在主页面查找日期输入框失败: {ex.Message}");
+                      }
+                  }
+                  
+                  // 方法3: 如果还是找不到，尝试通过name属性查找
+                  if (!selected)
+                  {
+                      foreach (var frame in frames)
+                      {
+                          try
+                          {
+                              var dateElement = frame.Locator($"input[name='{elementId}']").First;
+                              if (await dateElement.CountAsync() > 0)
+                              {
+                                  // 点击日期输入框以触发日历控件
+                                  await dateElement.ClickAsync();
+                                  Console.WriteLine($"      在iframe中通过name属性点击日期输入框 {elementId} 触发日历控件");
+                                  
+                                  // 等待日历控件出现
+                                  await Task.Delay(2000);
+                                  
+                                  // 尝试通过JavaScript直接设置日期值
+                                  try
+                                  {
+                                      await frame.EvaluateAsync($"document.querySelector('input[name=\"{elementId}\"]').value = '{dateValue}'");
+                                      Console.WriteLine($"      在iframe中通过name属性JavaScript设置日期 {elementId}: {dateValue}");
+                                      
+                                      // 触发change事件
+                                      await frame.EvaluateAsync($"document.querySelector('input[name=\"{elementId}\"]').dispatchEvent(new Event('change', {{ bubbles: true }}))");
+                                      Console.WriteLine($"      在iframe中通过name属性触发change事件 {elementId}");
+                                      
+                                      selected = true;
+                                      break;
+                                  }
+                                  catch (Exception jsEx)
+                                  {
+                                      Console.WriteLine($"      通过name属性JavaScript设置日期失败: {jsEx.Message}");
+                                      
+                                      // 如果JavaScript方法失败，尝试通过日历控件选择日期
+                                      selected = await SelectDateFromCalendar(frame, dateValue);
+                                      if (selected) break;
+                                  }
+                              }
+                          }
+                          catch (Exception ex)
+                          {
+                              Console.WriteLine($"      在iframe中通过name属性查找失败: {ex.Message}");
+                              continue;
+                          }
+                      }
+                  }
+                  
+                  if (!selected)
+                  {
+                      Console.WriteLine($"      最终失败：无法找到日期输入框 {elementId}");
+                  }
+                  
+                  // 等待日期选择后的页面加载
+                  await Task.Delay(1000);
+              }
+              catch (Exception ex)
+              {
+                  Console.WriteLine($"      选择日期失败: {ex.Message}");
+              }
+          }
+
+          private async Task<bool> SelectDateFromCalendar(IPage page, string dateValue)
+          {
+              try
+              {
+                  Console.WriteLine($"      尝试通过日历控件选择日期: {dateValue}");
+                  
+                  // 解析日期
+                  if (DateTime.TryParse(dateValue, out DateTime targetDate))
+                  {
+                      // 等待日历控件出现
+                      await page.WaitForSelectorAsync(".ui-datepicker", new PageWaitForSelectorOptions { Timeout = 5000 });
+                      Console.WriteLine($"      日历控件已出现");
+                      
+                      // 选择年份
+                      var yearSelect = page.Locator(".ui-datepicker-year").First;
+                      if (await yearSelect.CountAsync() > 0)
+                      {
+                          await yearSelect.SelectOptionAsync(targetDate.Year.ToString());
+                          Console.WriteLine($"      选择年份: {targetDate.Year}");
+                      }
+                      
+                      // 选择月份
+                      var monthSelect = page.Locator(".ui-datepicker-month").First;
+                      if (await monthSelect.CountAsync() > 0)
+                      {
+                          await monthSelect.SelectOptionAsync((targetDate.Month - 1).ToString());
+                          Console.WriteLine($"      选择月份: {targetDate.Month}");
+                      }
+                      
+                      // 选择日期
+                      var dayLink = page.Locator($".ui-datepicker-calendar td[data-year='{targetDate.Year}'][data-month='{targetDate.Month - 1}'] a:has-text('{targetDate.Day}')").First;
+                      if (await dayLink.CountAsync() > 0)
+                      {
+                          await dayLink.ClickAsync();
+                          Console.WriteLine($"      选择日期: {targetDate.Day}");
+                          return true;
+                      }
+                      else
+                      {
+                          Console.WriteLine($"      未找到日期链接: {targetDate.Day}");
+                      }
+                  }
+                  else
+                  {
+                      Console.WriteLine($"      无法解析日期格式: {dateValue}");
+                  }
+                  
+                  return false;
+              }
+              catch (Exception ex)
+              {
+                  Console.WriteLine($"      通过日历控件选择日期失败: {ex.Message}");
+                  return false;
+              }
+          }
+
+          private async Task<bool> SelectDateFromCalendar(IFrame frame, string dateValue)
+          {
+              try
+              {
+                  Console.WriteLine($"      在iframe中尝试通过日历控件选择日期: {dateValue}");
+                  
+                  // 解析日期
+                  if (DateTime.TryParse(dateValue, out DateTime targetDate))
+                  {
+                      // 等待日历控件出现
+                      await frame.WaitForSelectorAsync(".ui-datepicker", new FrameWaitForSelectorOptions { Timeout = 5000 });
+                      Console.WriteLine($"      iframe中日历控件已出现");
+                      
+                      // 选择年份
+                      var yearSelect = frame.Locator(".ui-datepicker-year").First;
+                      if (await yearSelect.CountAsync() > 0)
+                      {
+                          await yearSelect.SelectOptionAsync(targetDate.Year.ToString());
+                          Console.WriteLine($"      在iframe中选择年份: {targetDate.Year}");
+                      }
+                      
+                      // 选择月份
+                      var monthSelect = frame.Locator(".ui-datepicker-month").First;
+                      if (await monthSelect.CountAsync() > 0)
+                      {
+                          await monthSelect.SelectOptionAsync((targetDate.Month - 1).ToString());
+                          Console.WriteLine($"      在iframe中选择月份: {targetDate.Month}");
+                      }
+                      
+                      // 选择日期
+                      var dayLink = frame.Locator($".ui-datepicker-calendar td[data-year='{targetDate.Year}'][data-month='{targetDate.Month - 1}'] a:has-text('{targetDate.Day}')").First;
+                      if (await dayLink.CountAsync() > 0)
+                      {
+                          await dayLink.ClickAsync();
+                          Console.WriteLine($"      在iframe中选择日期: {targetDate.Day}");
+                          return true;
+                      }
+                      else
+                      {
+                          Console.WriteLine($"      在iframe中未找到日期链接: {targetDate.Day}");
+                      }
+                  }
+                  else
+                  {
+                      Console.WriteLine($"      无法解析日期格式: {dateValue}");
+                  }
+                  
+                  return false;
+              }
+              catch (Exception ex)
+              {
+                  Console.WriteLine($"      在iframe中通过日历控件选择日期失败: {ex.Message}");
+                  return false;
+              }
+          }
 
         private string GetElementId(string title)
         {
-            if (titleIdMapping.ContainsKey(title))
+            // 如果在第二种子序列中，使用 "表头-子序列内行序号" 的格式查找ID
+            if (isInSecondSubsequence)
             {
-                return titleIdMapping[title];
+                string lookupKey = $"{title}-{subsequenceRowIndex}";
+                Console.WriteLine($"      第二种子序列ID查找：{title} -> {lookupKey}");
+                
+                if (titleIdMapping.ContainsKey(lookupKey))
+                {
+                    return titleIdMapping[lookupKey];
+                }
+                else
+                {
+                    Console.WriteLine($"      警告：在第二种子序列中未找到ID映射：{lookupKey}");
+                    return null;
+                }
             }
-            return null;
+            else
+            {
+                // 普通ID查找方式
+                if (titleIdMapping.ContainsKey(title))
+                {
+                    return titleIdMapping[title];
+                }
+                return null;
+            }
         }
 
         private async Task ProcessRowFromColumn(ExcelWorksheet worksheet, List<string> headers, int row, int startCol, int totalCols)
         {
             Console.WriteLine($"从第 {row} 行的第 {GetColumnName(startCol)} 列开始处理");
+            
+            // 找到子序列相关列的索引
+            var subsequenceStartColumns = new List<int>();
+            var subsequenceEndColumns = new List<int>();
+            
+            for (int i = 0; i < headers.Count; i++)
+            {
+                if (headers[i] == SubsequenceStartColumn)
+                {
+                    subsequenceStartColumns.Add(i + 1);
+                }
+                else if (headers[i] == SubsequenceEndColumn)
+                {
+                    subsequenceEndColumns.Add(i + 1);
+                }
+            }
             
             for (int col = startCol; col <= totalCols; col++)
             {
@@ -919,7 +1501,50 @@ namespace AutoFinan
                 
                 Console.WriteLine($"  读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
                 
-                if (!string.IsNullOrEmpty(cellValue))
+                // 检查是否遇到子序列开始标记
+                Console.WriteLine($"      当前列 {col}，子序列开始列列表: [{string.Join(", ", subsequenceStartColumns)}]，是否包含当前列: {subsequenceStartColumns.Contains(col)}");
+                if (subsequenceStartColumns.Contains(col))
+                {
+                    Console.WriteLine($"      检查子序列开始标记：当前列 {col}，单元格值 '{cellValue}'，第一种子序列标记 '{SubsequenceMarker}'，第二种子序列标记 '{SubsequenceMarker2}'");
+                    
+                    if (cellValue == SubsequenceMarker)
+                    {
+                        Console.WriteLine($"检测到第一种子序列开始标记，进入子序列处理逻辑");
+                        // 找到对应的子序列结束列
+                        int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                        int nextRow = await ProcessSubsequence(worksheet, headers, row, worksheet.Dimension?.Rows ?? 0, col, subsequenceEndColIndex);
+                        
+                        // 如果子序列处理返回了下一行的行号，继续处理那一行
+                        if (nextRow > 0)
+                        {
+                            Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
+                            await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, totalCols);
+                        }
+                        return; // 退出当前方法
+                    }
+                    else if (cellValue == SubsequenceMarker2)
+                    {
+                        Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
+                        // 找到对应的子序列结束列
+                        int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                        int nextRow = await ProcessSecondSubsequence(worksheet, headers, row, worksheet.Dimension?.Rows ?? 0, col, subsequenceEndColIndex);
+                        
+                        // 如果子序列处理返回了下一行的行号，继续处理那一行
+                        if (nextRow > 0)
+                        {
+                            Console.WriteLine($"第二种子序列处理完成，继续处理第 {nextRow} 行");
+                            await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, totalCols);
+                        }
+                        return; // 退出当前方法
+                    }
+                    else
+                    {
+                        Console.WriteLine($"      子序列开始列的值 '{cellValue}' 不匹配任何子序列标记");
+                    }
+                }
+                
+                // 如果不是子序列开始列，则正常处理单元格
+                if (!subsequenceStartColumns.Contains(col) && !string.IsNullOrEmpty(cellValue))
                 {
                     await ProcessCell(columnName, row, headerName, cellValue);
                 }
@@ -940,114 +1565,149 @@ namespace AutoFinan
             return columnName;
         }
 
+        private int FindCorrespondingEndColumn(int startColumn, List<int> startColumns, List<int> endColumns)
+        {
+            // 找到当前开始列在所有开始列中的索引
+            int startIndex = startColumns.IndexOf(startColumn);
+            
+            // 如果找到对应的结束列，返回它；否则返回最后一个结束列
+            if (startIndex >= 0 && startIndex < endColumns.Count)
+            {
+                return endColumns[startIndex];
+            }
+            else if (endColumns.Count > 0)
+            {
+                return endColumns[endColumns.Count - 1];
+            }
+            
+            return -1; // 没有找到对应的结束列
+        }
+
         private bool IsNumeric(string value)
         {
             return double.TryParse(value, out _);
         }
 
-        private bool IsDate(string value)
-        {
-            // 检查是否为yyyy-mm-dd格式
-            return Regex.IsMatch(value, @"^\d{4}-\d{2}-\d{2}$");
-        }
+                 private bool IsDate(string value)
+         {
+             // 检查是否为yyyy-mm-dd格式
+             return Regex.IsMatch(value, @"^\d{4}-\d{2}-\d{2}$");
+         }
 
-        private void InitializeDropdownMappings()
-        {
-            dropdownMappings = new Dictionary<string, Dictionary<string, string>>
-            {
-                ["支付方式"] = new Dictionary<string, string>
-                {
-                    ["个人转卡"] = "10",
-                    ["转账汇款"] = "2",
-                    ["合同支付"] = "11",
-                    ["混合支付"] = "14",
-                    ["冲销其它项目借款"] = "9",
-                    ["公务卡认证还款"] = "15"
-                },
-                ["人员类型"] = new Dictionary<string, string>
-                {
-                    ["院士"] = "院士",
-                    ["国家级人才或同等层次人才"] = "国家级人才或同等层次人才",
-                    ["2级教授"] = "2级教授",
-                    ["高级职称人员"] = "高级职称人员",
-                    ["其他人员"] = "其他人员"
-                },
-                ["省份地区"] = new Dictionary<string, string>
-                {
-                    ["北京市"] = "北京市",
-                    ["天津市"] = "天津市",
-                    ["河北省（石家庄、廊坊、保定）"] = "河北省（石家庄、廊坊、保定）",
-                    ["河北省（其他地区）"] = "河北省（其他地区）",
-                    ["山西省（太原、大同、晋城）"] = "山西省（太原、大同、晋城）",
-                    ["山西省（其他地区）"] = "山西省（其他地区）",
-                    ["内蒙古（呼和浩特）"] = "内蒙古（呼和浩特）",
-                    ["内蒙古（其他地区）"] = "内蒙古（其他地区）",
-                    ["辽宁省（沈阳）"] = "辽宁省（沈阳）",
-                    ["辽宁省（其他地区）"] = "辽宁省（其他地区）",
-                    ["大连市"] = "大连市",
-                    ["吉林省（长春）"] = "吉林省（长春）",
-                    ["吉林省（其他地区）"] = "吉林省（其他地区）",
-                    ["黑龙江省（哈尔滨）"] = "黑龙江省（哈尔滨）",
-                    ["黑龙江省（其他地区）"] = "黑龙江省（其他地区）",
-                    ["上海市"] = "上海市",
-                    ["江苏省（南京、苏州、无锡、常州、镇江）"] = "江苏省（南京、苏州、无锡、常州、镇江）",
-                    ["江苏省（其他地区）"] = "江苏省（其他地区）",
-                    ["浙江省（杭州）"] = "浙江省（杭州）",
-                    ["浙江省（其他地区）"] = "浙江省（其他地区）",
-                    ["宁波市"] = "宁波市",
-                    ["安徽省"] = "安徽省",
-                    ["福建省（福州、泉州、平潭综合实验区）"] = "福建省（福州、泉州、平潭综合实验区）",
-                    ["福建省（其他地区）"] = "福建省（其他地区）",
-                    ["厦门市"] = "厦门市",
-                    ["江西省"] = "江西省",
-                    ["山东省（济南、淄博、枣庄、东营、潍坊、济宁、泰安）"] = "山东省（济南、淄博、枣庄、东营、潍坊、济宁、泰安）",
-                    ["山东省（其他地区）"] = "山东省（其他地区）",
-                    ["青岛市"] = "青岛市",
-                    ["河南省（郑州）"] = "河南省（郑州）",
-                    ["河南省（其他地区）"] = "河南省（其他地区）",
-                    ["湖北省（武汉）"] = "湖北省（武汉）",
-                    ["湖北省（其他地区）"] = "湖北省（其他地区）",
-                    ["湖南省（长沙）"] = "湖南省（长沙）",
-                    ["湖南省（其他地区）"] = "湖南省（其他地区）",
-                    ["广东省（广州、珠海、佛山、东莞、中山、江门）"] = "广东省（广州、珠海、佛山、东莞、中山、江门）",
-                    ["广东省（其他地区）"] = "广东省（其他地区）",
-                    ["深圳市"] = "深圳市",
-                    ["广西（南宁）"] = "广西（南宁）",
-                    ["广西（其他地区）"] = "广西（其他地区）",
-                    ["海南省(海口、文昌、澄迈县）"] = "海南省(海口、文昌、澄迈县）",
-                    ["海南省（其他地区）"] = "海南省（其他地区）",
-                    ["重庆市（9个中心城区、北部新区）"] = "重庆市（9个中心城区、北部新区）",
-                    ["重庆市(其他地区)"] = "重庆市(其他地区)",
-                    ["四川省（成都）"] = "四川省（成都）",
-                    ["四川省（其他地区）"] = "四川省（其他地区）",
-                    ["贵州省（贵阳）"] = "贵州省（贵阳）",
-                    ["贵州省（其他地区）"] = "贵州省（其他地区）",
-                    ["云南省（昆明、大理州、丽江、迪庆州、西双版纳州）"] = "云南省（昆明、大理州、丽江、迪庆州、西双版纳州）",
-                    ["云南省（其他地区）"] = "云南省（其他地区）",
-                    ["西藏（拉萨）"] = "西藏（拉萨）",
-                    ["西藏（其他地区）"] = "西藏（其他地区）",
-                    ["陕西省（西安）"] = "陕西省（西安）",
-                    ["陕西省（其他地区）"] = "陕西省（其他地区）",
-                    ["甘肃省（兰州）"] = "甘肃省（兰州）",
-                    ["甘肃省(其他地区)"] = "甘肃省(其他地区)",
-                    ["青海省（西宁）"] = "青海省（西宁）",
-                    ["青海省（其他地区）"] = "青海省（其他地区）",
-                    ["宁夏（银川）"] = "宁夏（银川）",
-                    ["宁夏（其他地区）"] = "宁夏（其他地区）",
-                    ["新疆（乌鲁木齐）"] = "新疆（乌鲁木齐）",
-                    ["新疆（其他地区）"] = "新疆（其他地区）"
-                },
-                ["安排状态"] = new Dictionary<string, string>
-                {
-                    ["未安排"] = "未安排",
-                    ["安排"] = "安排"
-                },
-                ["交通费"] = new Dictionary<string, string>
-                {
-                    ["未安排"] = "未安排",
-                    ["安排"] = "安排"
-                }
-            };
+         private bool IsDateField(string headerName)
+         {
+             // 检查是否是日期字段
+             string[] dateFields = { "起", "迄", "开始日期", "结束日期", "日期" };
+             return dateFields.Any(field => headerName.Contains(field));
+         }
+
+                 private void InitializeDropdownMappings()
+         {
+             dropdownMappings = new Dictionary<string, Dictionary<string, string>>
+             {
+                 ["支付方式"] = new Dictionary<string, string>
+                 {
+                     ["个人转卡"] = "10",
+                     ["转账汇款"] = "2",
+                     ["合同支付"] = "11",
+                     ["混合支付"] = "14",
+                     ["冲销其它项目借款"] = "9",
+                     ["公务卡认证还款"] = "15"
+                 },
+                 ["人员类型"] = new Dictionary<string, string>
+                 {
+                     ["院士"] = "院士",
+                     ["国家级人才或同等层次人才"] = "国家级人才或同等层次人才",
+                     ["2级教授"] = "2级教授",
+                     ["高级职称人员"] = "高级职称人员",
+                     ["其他人员"] = "其他人员"
+                 },
+                 ["省份"] = new Dictionary<string, string>
+                 {
+                     ["北京市"] = "北京市",
+                     ["天津市"] = "天津市",
+                     ["河北省（石家庄、廊坊、保定）"] = "河北省（石家庄、廊坊、保定）",
+                     ["河北省（其他地区）"] = "河北省（其他地区）",
+                     ["山西省（太原、大同、晋城）"] = "山西省（太原、大同、晋城）",
+                     ["山西省（其他地区）"] = "山西省（其他地区）",
+                     ["内蒙古（呼和浩特）"] = "内蒙古（呼和浩特）",
+                     ["内蒙古（其他地区）"] = "内蒙古（其他地区）",
+                     ["辽宁省（沈阳）"] = "辽宁省（沈阳）",
+                     ["辽宁省（其他地区）"] = "辽宁省（其他地区）",
+                     ["大连市"] = "大连市",
+                     ["吉林省（长春）"] = "吉林省（长春）",
+                     ["吉林省（其他地区）"] = "吉林省（其他地区）",
+                     ["黑龙江省（哈尔滨）"] = "黑龙江省（哈尔滨）",
+                     ["黑龙江省（其他地区）"] = "黑龙江省（其他地区）",
+                     ["上海市"] = "上海市",
+                     ["江苏省（南京、苏州、无锡、常州、镇江）"] = "江苏省（南京、苏州、无锡、常州、镇江）",
+                     ["江苏省（其他地区）"] = "江苏省（其他地区）",
+                     ["浙江省（杭州）"] = "浙江省（杭州）",
+                     ["浙江省（其他地区）"] = "浙江省（其他地区）",
+                     ["宁波市"] = "宁波市",
+                     ["安徽省"] = "安徽省",
+                     ["福建省（福州、泉州、平潭综合实验区）"] = "福建省（福州、泉州、平潭综合实验区）",
+                     ["福建省（其他地区）"] = "福建省（其他地区）",
+                     ["厦门市"] = "厦门市",
+                     ["江西省"] = "江西省",
+                     ["山东省（济南、淄博、枣庄、东营、潍坊、济宁、泰安）"] = "山东省（济南、淄博、枣庄、东营、潍坊、济宁、泰安）",
+                     ["山东省（其他地区）"] = "山东省（其他地区）",
+                     ["青岛市"] = "青岛市",
+                     ["河南省（郑州）"] = "河南省（郑州）",
+                     ["河南省（其他地区）"] = "河南省（其他地区）",
+                     ["湖北省（武汉）"] = "湖北省（武汉）",
+                     ["湖北省（其他地区）"] = "湖北省（其他地区）",
+                     ["湖南省（长沙）"] = "湖南省（长沙）",
+                     ["湖南省（其他地区）"] = "湖南省（其他地区）",
+                     ["广东省（广州、珠海、佛山、东莞、中山、江门）"] = "广东省（广州、珠海、佛山、东莞、中山、江门）",
+                     ["广东省（其他地区）"] = "广东省（其他地区）",
+                     ["深圳市"] = "深圳市",
+                     ["广西（南宁）"] = "广西（南宁）",
+                     ["广西（其他地区）"] = "广西（其他地区）",
+                     ["海南省(海口、文昌、澄迈县）"] = "海南省(海口、文昌、澄迈县）",
+                     ["海南省（其他地区）"] = "海南省（其他地区）",
+                     ["重庆市（9个中心城区、北部新区）"] = "重庆市（9个中心城区、北部新区）",
+                     ["重庆市(其他地区)"] = "重庆市(其他地区)",
+                     ["四川省（成都）"] = "四川省（成都）",
+                     ["四川省（其他地区）"] = "四川省（其他地区）",
+                     ["贵州省（贵阳）"] = "贵州省（贵阳）",
+                     ["贵州省（其他地区）"] = "贵州省（其他地区）",
+                     ["云南省（昆明、大理州、丽江、迪庆州、西双版纳州）"] = "云南省（昆明、大理州、丽江、迪庆州、西双版纳州）",
+                     ["云南省（其他地区）"] = "云南省（其他地区）",
+                     ["西藏（拉萨）"] = "西藏（拉萨）",
+                     ["西藏（其他地区）"] = "西藏（其他地区）",
+                     ["陕西省（西安）"] = "陕西省（西安）",
+                     ["陕西省（其他地区）"] = "陕西省（其他地区）",
+                     ["甘肃省（兰州）"] = "甘肃省（兰州）",
+                     ["甘肃省(其他地区)"] = "甘肃省(其他地区)",
+                     ["青海省（西宁）"] = "青海省（西宁）",
+                     ["青海省（其他地区）"] = "青海省（其他地区）",
+                     ["宁夏（银川）"] = "宁夏（银川）",
+                     ["宁夏（其他地区）"] = "宁夏（其他地区）",
+                     ["新疆（乌鲁木齐）"] = "新疆（乌鲁木齐）",
+                     ["新疆（其他地区）"] = "新疆（其他地区）"
+                 },
+                 ["是否安排伙食"] = new Dictionary<string, string>
+                 {
+                     ["未安排"] = "未安排",
+                     ["安排"] = "安排"
+                 },
+                 ["是否安排交通"] = new Dictionary<string, string>
+                 {
+                     ["未安排"] = "未安排",
+                     ["安排"] = "安排"
+                 },
+                 ["安排状态"] = new Dictionary<string, string>
+                 {
+                     ["未安排"] = "未安排",
+                     ["安排"] = "安排"
+                 },
+                 ["交通费"] = new Dictionary<string, string>
+                 {
+                     ["未安排"] = "未安排",
+                     ["安排"] = "安排"
+                 }
+             };
             
             Console.WriteLine($"初始化下拉框映射，共 {dropdownMappings.Count} 个字段");
         }
