@@ -374,3 +374,4 @@ C:\Users\FH\source\repos\Auto Finan\Auto Finan\obj\Debug\net8.0\refint\Auto Fina
 C:\Users\FH\source\repos\Auto Finan\Auto Finan\obj\Debug\net8.0\Auto Finan.pdb
 C:\Users\FH\source\repos\Auto Finan\Auto Finan\obj\Debug\net8.0\Auto Finan.genruntimeconfig.cache
 C:\Users\FH\source\repos\Auto Finan\Auto Finan\obj\Debug\net8.0\ref\Auto Finan.dll
+C:\Users\FH\source\repos\Auto Finan\Auto Finan\obj\Debug\net8.0\Auto Finan.sourcelink.json

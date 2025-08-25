@@ -5,6 +5,7 @@ using OfficeOpenXml;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace AutoFinan
 {
@@ -36,10 +37,18 @@ namespace AutoFinan
     public class ReimbursementAutomation
     {
         private const string ExcelFilePath = "报销信息.xlsx";
+        private const string MappingFilePath = "标题-ID.xlsx";
         private const string SheetName = "BaoXiao_sheet";
+        private const string MappingSheetName = "Sheet1"; // 标题-ID映射表的工作表名
         private const string SubsequenceStartColumn = "子序列开始";
         private const string SubsequenceEndColumn = "子序列结束";
         private const string SubsequenceMarker = "是";
+
+        private Dictionary<string, string> titleIdMapping;
+        private Dictionary<string, Dictionary<string, string>> dropdownMappings;
+        private IPlaywright playwright;
+        private IBrowser browser;
+        private IPage page;
 
         public async Task RunAsync()
         {
@@ -59,18 +68,18 @@ namespace AutoFinan
                 Path.Combine(currentDirectory, "..", "..", "..", "..", ExcelFilePath)
             };
             
-            string actualFilePath = null;
+            string actualExcelPath = null;
             foreach (string path in possiblePaths)
             {
                 if (File.Exists(path))
                 {
-                    actualFilePath = path;
+                    actualExcelPath = path;
                     Console.WriteLine($"找到Excel文件: {path}");
                     break;
                 }
             }
             
-            if (actualFilePath == null)
+            if (actualExcelPath == null)
             {
                 Console.WriteLine($"错误：找不到文件 {ExcelFilePath}");
                 Console.WriteLine("尝试过的路径:");
@@ -80,8 +89,26 @@ namespace AutoFinan
                 }
                 return;
             }
+            
+            // 加载标题-ID映射表
+            await LoadTitleIdMapping(actualExcelPath);
+            
+            // 初始化下拉框映射
+            InitializeDropdownMappings();
+            
+            if (!File.Exists(actualExcelPath))
+            {
+                Console.WriteLine($"错误：找不到文件 {actualExcelPath}");
+                return;
+            }
 
-            using (var package = new ExcelPackage(new FileInfo(actualFilePath)))
+            // 启动浏览器
+            await InitializeBrowser();
+            
+            // 导航到目标网页
+            await NavigateToTargetPage();
+
+            using (var package = new ExcelPackage(new FileInfo(actualExcelPath)))
             {
                 var worksheet = package.Workbook.Worksheets[SheetName];
                 if (worksheet == null)
@@ -151,20 +178,20 @@ namespace AutoFinan
                         
                         Console.WriteLine($"  读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
                         
-                                        // 检查是否遇到子序列开始标记
-                if (col == subsequenceStartColIndex && cellValue == SubsequenceMarker)
-                {
-                    Console.WriteLine($"检测到子序列开始标记，进入子序列处理逻辑");
-                    int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, subsequenceStartColIndex, subsequenceEndColIndex);
-                    
-                    // 如果子序列处理返回了下一行的行号，继续处理那一行
-                    if (nextRow > 0)
-                    {
-                        Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
-                        await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
-                    }
-                    break; // 跳出当前行的列循环，继续处理下一行
-                }
+                        // 检查是否遇到子序列开始标记
+                        if (col == subsequenceStartColIndex && cellValue == SubsequenceMarker)
+                        {
+                            Console.WriteLine($"检测到子序列开始标记，进入子序列处理逻辑");
+                            int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, subsequenceStartColIndex, subsequenceEndColIndex);
+                            
+                            // 如果子序列处理返回了下一行的行号，继续处理那一行
+                            if (nextRow > 0)
+                            {
+                                Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
+                                await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
+                            }
+                            break; // 跳出当前行的列循环，继续处理下一行
+                        }
                         
                         if (!string.IsNullOrEmpty(cellValue))
                         {
@@ -177,6 +204,71 @@ namespace AutoFinan
                 
                 Console.WriteLine("\n=== 所有数据处理完成 ===");
             }
+            
+            // 等待用户手动关闭浏览器
+            Console.WriteLine(new string('=', 50));
+            Console.WriteLine("所有操作已完成！");
+            Console.WriteLine("浏览器将保持打开状态，您可以手动关闭。");
+            Console.WriteLine(new string('=', 50));
+            
+            try
+            {
+                Console.WriteLine("按回车键关闭浏览器...");
+                Console.ReadLine();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"等待用户输入时出错: {ex.Message}");
+            }
+            finally
+            {
+                // 清理资源
+                await Cleanup();
+            }
+        }
+
+        private async Task LoadTitleIdMapping(string excelFilePath)
+        {
+            Console.WriteLine("开始加载标题-ID映射表...");
+            
+            // 获取Excel文件所在目录
+            string excelDirectory = Path.GetDirectoryName(excelFilePath);
+            string mappingFilePath = Path.Combine(excelDirectory, MappingFilePath);
+            
+            if (!File.Exists(mappingFilePath))
+            {
+                Console.WriteLine($"错误：找不到标题-ID映射文件 {mappingFilePath}");
+                return;
+            }
+
+            titleIdMapping = new Dictionary<string, string>();
+
+            using (var package = new ExcelPackage(new FileInfo(mappingFilePath)))
+            {
+                var worksheet = package.Workbook.Worksheets[MappingSheetName];
+                if (worksheet == null)
+                {
+                    Console.WriteLine($"错误：找不到工作表 {MappingSheetName}");
+                    return;
+                }
+
+                int rowCount = worksheet.Dimension?.Rows ?? 0;
+                Console.WriteLine($"标题-ID映射表行数: {rowCount}");
+
+                for (int row = 2; row <= rowCount; row++) // 从第2行开始（跳过标题行）
+                {
+                    var title = worksheet.Cells[row, 1].Value?.ToString() ?? "";
+                    var id = worksheet.Cells[row, 2].Value?.ToString() ?? "";
+                    
+                    if (!string.IsNullOrEmpty(title) && !string.IsNullOrEmpty(id))
+                    {
+                        titleIdMapping[title] = id;
+                        Console.WriteLine($"  映射: {title} -> {id}");
+                    }
+                }
+            }
+
+            Console.WriteLine($"成功加载 {titleIdMapping.Count} 个标题-ID映射");
         }
 
         private async Task<int> ProcessSubsequence(ExcelWorksheet worksheet, List<string> headers, int startRow, int totalRows, int subsequenceStartColIndex, int subsequenceEndColIndex)
@@ -240,62 +332,534 @@ namespace AutoFinan
             
             Console.WriteLine($"    执行操作：{columnName}{row} - {headerName} = '{cellValue}'");
             
-            // 示例操作类型判断
-            if (cellValue.StartsWith("$"))
+            // 1. 等待操作（列标题为"等待"）
+            if (headerName == "等待")
             {
-                Console.WriteLine($"      检测到按钮操作: {cellValue}");
-                // 这里可以添加按钮点击逻辑
+                Console.WriteLine($"      检测到等待操作: {cellValue}");
+                await WaitOperation(cellValue);
             }
+            // 2. 按钮点击操作（以$开头）
+            else if (cellValue == "$点击")
+            {
+                Console.WriteLine($"      检测到按钮点击操作: {headerName}");
+                await ClickButton(headerName);
+            }
+            // 3. Radio按钮点击操作（以$$开头）
             else if (cellValue.StartsWith("$$"))
             {
-                Console.WriteLine($"      检测到单选按钮操作: {cellValue}");
-                // 这里可以添加单选按钮选择逻辑
+                string radioValue = cellValue.Substring(2); // 去掉$$前缀
+                Console.WriteLine($"      检测到Radio按钮操作: {radioValue}");
+                await ClickRadioButton(radioValue);
             }
-            else if (cellValue.StartsWith("@"))
+            // 4. 下拉框选择操作
+            else if (IsDropdownField(headerName))
             {
-                Console.WriteLine($"      检测到导航操作: {cellValue}");
-                // 这里可以添加导航操作逻辑
+                Console.WriteLine($"      检测到下拉框选择操作: {headerName} = {cellValue}");
+                await SelectDropdown(headerName, cellValue);
             }
-            else if (cellValue.StartsWith("*"))
+            // 5. 日期选择操作（格式：yyyy-mm-dd）
+            else if (IsDate(cellValue))
             {
-                Console.WriteLine($"      检测到银行卡选择操作: {cellValue}");
-                // 这里可以添加银行卡选择逻辑
+                Console.WriteLine($"      检测到日期选择操作: {cellValue}");
+                await SelectDate(headerName, cellValue);
             }
-            else if (cellValue.StartsWith("#"))
-            {
-                Console.WriteLine($"      检测到科目操作: {cellValue}");
-                // 这里可以添加科目处理逻辑
-            }
-            else if (IsNumeric(cellValue))
-            {
-                Console.WriteLine($"      检测到数值输入: {cellValue}");
-                // 这里可以添加数值输入逻辑
-            }
+            // 6. 一般输入框操作
             else
             {
-                Console.WriteLine($"      检测到文本输入: {cellValue}");
-                // 这里可以添加文本输入逻辑
+                Console.WriteLine($"      检测到输入框操作: {cellValue}");
+                await FillInput(headerName, cellValue);
             }
             
             // 模拟异步操作
             await Task.Delay(100);
         }
 
-        private string GetColumnName(int columnIndex)
+        private async Task FillInput(string headerName, string value)
         {
-            string columnName = "";
-            while (columnIndex > 0)
+            try
             {
-                columnIndex--;
-                columnName = (char)('A' + columnIndex % 26) + columnName;
-                columnIndex /= 26;
+                string elementId = GetElementId(headerName);
+                if (string.IsNullOrEmpty(elementId))
+                {
+                    Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的元素ID");
+                    return;
+                }
+
+                Console.WriteLine($"      填写输入框: {headerName} -> {elementId} = {value}");
+                
+                // 实现实际的输入框填写逻辑
+                bool filled = false;
+                
+                // 方法1: 优先在iframe中查找
+                var frames = page.Frames;
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var inputElement = frame.Locator($"#{elementId}").First;
+                        if (await inputElement.CountAsync() > 0)
+                        {
+                            await inputElement.FillAsync(value);
+                            Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {value}");
+                            filled = true;
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中查找输入框失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                // 方法2: 如果iframe中找不到，尝试在主页面查找
+                if (!filled)
+                {
+                    try
+                    {
+                        await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                        await page.FillAsync($"#{elementId}", value);
+                        Console.WriteLine($"      在主页面成功填写输入框 {elementId}: {value}");
+                        filled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面查找输入框失败: {ex.Message}");
+                    }
+                }
+                
+                // 方法3: 如果还是找不到，尝试通过name属性查找
+                if (!filled)
+                {
+                    foreach (var frame in frames)
+                    {
+                        try
+                        {
+                            var inputElement = frame.Locator($"input[name='{elementId}']").First;
+                            if (await inputElement.CountAsync() > 0)
+                            {
+                                await inputElement.FillAsync(value);
+                                Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
+                                filled = true;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      在iframe中通过name属性查找失败: {ex.Message}");
+                            continue;
+                        }
+                    }
+                }
+                
+                if (!filled)
+                {
+                    Console.WriteLine($"      最终失败：无法找到输入框 {elementId}");
+                }
             }
-            return columnName;
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      填写输入框失败: {ex.Message}");
+            }
         }
 
-        private bool IsNumeric(string value)
+        private async Task ClickButton(string headerName)
         {
-            return double.TryParse(value, out _);
+            try
+            {
+                string elementId = GetElementId(headerName);
+                if (string.IsNullOrEmpty(elementId))
+                {
+                    Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的按钮ID");
+                    return;
+                }
+
+                Console.WriteLine($"      点击按钮: {headerName} -> {elementId}");
+                
+                // 特殊处理：登录按钮需要等待验证码输入
+                if (headerName == "登录按钮")
+                {
+                    Console.WriteLine("      检测到登录按钮，等待用户输入验证码...");
+                    Console.WriteLine(new string('=', 50));
+                    Console.WriteLine("请在下方输入验证码:");
+                    Console.WriteLine(new string('=', 50));
+                    
+                    string captcha = Console.ReadLine();
+                    Console.WriteLine($"      用户输入验证码: {captcha}");
+                    
+                    // 填写验证码
+                    await FillCaptcha(captcha);
+                }
+                
+                // 特殊处理：网上预约报账按钮（导航按钮）
+                if (headerName == "网上预约报账按钮")
+                {
+                    Console.WriteLine("      检测到网上预约报账按钮，使用导航功能");
+                    await ClickNavigationButton();
+                    return;
+                }
+                
+                // 实现实际的按钮点击逻辑
+                bool clicked = false;
+                
+                // 等待页面完全加载
+                await Task.Delay(500);
+                
+                // 方法1: 优先在iframe中通过btnname属性查找
+                var frames = page.Frames;
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var buttonElement = frame.Locator($"button[btnname='{elementId}']").First;
+                        if (await buttonElement.CountAsync() > 0)
+                        {
+                            await buttonElement.ClickAsync();
+                            Console.WriteLine($"      在iframe中通过btnname成功点击按钮: {elementId}");
+                            clicked = true;
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中通过btnname查找按钮失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                // 方法2: 在iframe中通过ID查找
+                if (!clicked)
+                {
+                    foreach (var frame in frames)
+                    {
+                        try
+                        {
+                            var buttonElement = frame.Locator($"#{elementId}").First;
+                            if (await buttonElement.CountAsync() > 0)
+                            {
+                                await buttonElement.ClickAsync();
+                                Console.WriteLine($"      在iframe中通过ID成功点击按钮: {elementId}");
+                                clicked = true;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      在iframe中通过ID查找按钮失败: {ex.Message}");
+                            continue;
+                        }
+                    }
+                }
+                
+                // 方法3: 在主页面通过btnname属性查找
+                if (!clicked)
+                {
+                    try
+                    {
+                        var buttonElement = page.Locator($"button[btnname='{elementId}']").First;
+                        if (await buttonElement.CountAsync() > 0)
+                        {
+                            await buttonElement.ClickAsync();
+                            Console.WriteLine($"      在主页面通过btnname成功点击按钮: {elementId}");
+                            clicked = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面通过btnname查找按钮失败: {ex.Message}");
+                    }
+                }
+                
+                // 方法4: 在主页面通过ID查找
+                if (!clicked)
+                {
+                    try
+                    {
+                        await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                        await page.ClickAsync($"#{elementId}");
+                        Console.WriteLine($"      在主页面通过ID成功点击按钮: {elementId}");
+                        clicked = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面通过ID查找按钮失败: {ex.Message}");
+                    }
+                }
+                
+                // 方法5: 尝试其他选择器
+                if (!clicked)
+                {
+                    string[] alternativeSelectors = {
+                        $"button[guid*='{elementId}']",
+                        $"button:has-text('{elementId}')",
+                        $"input[btnname='{elementId}']",
+                        $"[btnname='{elementId}']"
+                    };
+                    
+                    foreach (string selector in alternativeSelectors)
+                    {
+                        try
+                        {
+                            // 在iframe中查找
+                            foreach (var frame in frames)
+                            {
+                                try
+                                {
+                                    var buttonElement = frame.Locator(selector).First;
+                                    if (await buttonElement.CountAsync() > 0)
+                                    {
+                                        await buttonElement.ClickAsync();
+                                        Console.WriteLine($"      在iframe中使用备用选择器成功点击按钮: {selector}");
+                                        clicked = true;
+                                        break;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    continue;
+                                }
+                            }
+                            
+                            if (clicked) break;
+                            
+                            // 在主页面查找
+                            try
+                            {
+                                var buttonElement = page.Locator(selector).First;
+                                if (await buttonElement.CountAsync() > 0)
+                                {
+                                    await buttonElement.ClickAsync();
+                                    Console.WriteLine($"      在主页面使用备用选择器成功点击按钮: {selector}");
+                                    clicked = true;
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                continue;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      备用选择器 {selector} 失败: {ex.Message}");
+                            continue;
+                        }
+                    }
+                }
+                
+                if (!clicked)
+                {
+                    Console.WriteLine($"      最终失败：无法找到按钮 {elementId}");
+                }
+                
+                // 等待按钮点击后的页面加载
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击按钮失败: {ex.Message}");
+            }
+        }
+
+        private async Task FillCaptcha(string captcha)
+        {
+            try
+            {
+                Console.WriteLine($"      开始填写验证码: {captcha}");
+                
+                // 尝试常见的验证码输入框选择器
+                string[] captchaSelectors = {
+                    "input[name='captcha']",
+                    "input[id*='captcha']",
+                    "input[placeholder*='验证码']",
+                    "input[placeholder*='captcha']",
+                    "#captcha",
+                    ".captcha-input"
+                };
+                
+                bool captchaFilled = false;
+                foreach (string selector in captchaSelectors)
+                {
+                    try
+                    {
+                        await page.WaitForSelectorAsync(selector, new PageWaitForSelectorOptions { Timeout = 1000 });
+                        await page.FillAsync(selector, captcha);
+                        Console.WriteLine($"      成功填写验证码: {captcha}");
+                        captchaFilled = true;
+                        break;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
+                
+                if (!captchaFilled)
+                {
+                    Console.WriteLine("      警告：未找到验证码输入框，请手动输入验证码");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      填写验证码失败: {ex.Message}");
+            }
+        }
+
+        private async Task WaitOperation(string waitValue)
+        {
+            try
+            {
+                // 解析等待时间
+                if (double.TryParse(waitValue, out double waitSeconds))
+                {
+                    Console.WriteLine($"      开始等待 {waitSeconds} 秒...");
+                    
+                    // 等待指定的秒数
+                    await Task.Delay((int)(waitSeconds * 1000));
+                    
+                    Console.WriteLine($"      等待 {waitSeconds} 秒完成");
+                }
+                else
+                {
+                    Console.WriteLine($"      警告：无法解析等待时间 '{waitValue}'，期望数字格式");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      等待操作失败: {ex.Message}");
+            }
+        }
+
+        private async Task ClickNavigationButton()
+        {
+            try
+            {
+                Console.WriteLine("      开始处理网上预约报账导航按钮...");
+                
+                // 方法1: 通过onclick属性查找
+                try
+                {
+                    var navigationElement = page.Locator("div[onclick*='navToPrj(\"WF_YB6\")']").First;
+                    if (await navigationElement.CountAsync() > 0)
+                    {
+                        await navigationElement.ClickAsync();
+                        Console.WriteLine("      成功点击网上预约报账导航按钮（通过onclick属性）");
+                        await Task.Delay(2000); // 等待页面跳转
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      通过onclick属性查找失败: {ex.Message}");
+                }
+                
+                // 方法2: 通过JavaScript直接调用
+                try
+                {
+                    await page.EvaluateAsync("navToPrj('WF_YB6')");
+                    Console.WriteLine("      成功调用navToPrj('WF_YB6')函数");
+                    await Task.Delay(2000); // 等待页面跳转
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      JavaScript调用失败: {ex.Message}");
+                }
+                
+                // 方法3: 通过class和onclick组合查找
+                try
+                {
+                    var syslinkElement = page.Locator("div.syslink[onclick*='WF_YB6']").First;
+                    if (await syslinkElement.CountAsync() > 0)
+                    {
+                        await syslinkElement.ClickAsync();
+                        Console.WriteLine("      成功点击网上预约报账导航按钮（通过class+onclick）");
+                        await Task.Delay(2000); // 等待页面跳转
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      通过class+onclick查找失败: {ex.Message}");
+                }
+                
+                // 方法4: 通过第一个syslink元素查找（如果只有一个导航选项）
+                try
+                {
+                    var firstSyslink = page.Locator("div.syslink").First;
+                    if (await firstSyslink.CountAsync() > 0)
+                    {
+                        await firstSyslink.ClickAsync();
+                        Console.WriteLine("      成功点击第一个导航按钮");
+                        await Task.Delay(2000); // 等待页面跳转
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      点击第一个导航按钮失败: {ex.Message}");
+                }
+                
+                Console.WriteLine("      警告：无法找到网上预约报账导航按钮");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击导航按钮失败: {ex.Message}");
+            }
+        }
+
+        private async Task ClickRadioButton(string radioValue)
+        {
+            try
+            {
+                string elementId = GetElementId(radioValue);
+                if (string.IsNullOrEmpty(elementId))
+                {
+                    Console.WriteLine($"      警告：未找到Radio值 '{radioValue}' 对应的元素ID");
+                    return;
+                }
+
+                Console.WriteLine($"      点击Radio按钮: {radioValue} -> {elementId}");
+                
+                // 这里应该实现实际的Radio按钮点击逻辑
+                Console.WriteLine($"      执行：点击Radio按钮 {elementId}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击Radio按钮失败: {ex.Message}");
+            }
+        }
+
+        private async Task SelectDate(string headerName, string dateValue)
+        {
+            try
+            {
+                string elementId = GetElementId(headerName);
+                if (string.IsNullOrEmpty(elementId))
+                {
+                    Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的日期控件ID");
+                    return;
+                }
+
+                Console.WriteLine($"      选择日期: {headerName} -> {elementId} = {dateValue}");
+                
+                // 这里应该实现实际的日期选择逻辑
+                // 使用jQuery日历控件选择日期
+                Console.WriteLine($"      执行：使用jQuery日历控件选择日期 {elementId} = {dateValue}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      选择日期失败: {ex.Message}");
+            }
+        }
+
+        private string GetElementId(string title)
+        {
+            if (titleIdMapping.ContainsKey(title))
+            {
+                return titleIdMapping[title];
+            }
+            return null;
         }
 
         private async Task ProcessRowFromColumn(ExcelWorksheet worksheet, List<string> headers, int row, int startCol, int totalCols)
@@ -317,6 +881,302 @@ namespace AutoFinan
             }
             
             Console.WriteLine($"第 {row} 行从第 {GetColumnName(startCol)} 列开始的处理完成");
+        }
+
+        private string GetColumnName(int columnIndex)
+        {
+            string columnName = "";
+            while (columnIndex > 0)
+            {
+                columnIndex--;
+                columnName = (char)('A' + columnIndex % 26) + columnName;
+                columnIndex /= 26;
+            }
+            return columnName;
+        }
+
+        private bool IsNumeric(string value)
+        {
+            return double.TryParse(value, out _);
+        }
+
+        private bool IsDate(string value)
+        {
+            // 检查是否为yyyy-mm-dd格式
+            return Regex.IsMatch(value, @"^\d{4}-\d{2}-\d{2}$");
+        }
+
+        private void InitializeDropdownMappings()
+        {
+            dropdownMappings = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["支付方式"] = new Dictionary<string, string>
+                {
+                    ["个人转卡"] = "10",
+                    ["转账汇款"] = "2",
+                    ["合同支付"] = "11",
+                    ["混合支付"] = "14",
+                    ["冲销其它项目借款"] = "9",
+                    ["公务卡认证还款"] = "15"
+                },
+                ["人员类型"] = new Dictionary<string, string>
+                {
+                    ["院士"] = "院士",
+                    ["国家级人才或同等层次人才"] = "国家级人才或同等层次人才",
+                    ["2级教授"] = "2级教授",
+                    ["高级职称人员"] = "高级职称人员",
+                    ["其他人员"] = "其他人员"
+                },
+                ["省份地区"] = new Dictionary<string, string>
+                {
+                    ["北京市"] = "北京市",
+                    ["天津市"] = "天津市",
+                    ["河北省（石家庄、廊坊、保定）"] = "河北省（石家庄、廊坊、保定）",
+                    ["河北省（其他地区）"] = "河北省（其他地区）",
+                    ["山西省（太原、大同、晋城）"] = "山西省（太原、大同、晋城）",
+                    ["山西省（其他地区）"] = "山西省（其他地区）",
+                    ["内蒙古（呼和浩特）"] = "内蒙古（呼和浩特）",
+                    ["内蒙古（其他地区）"] = "内蒙古（其他地区）",
+                    ["辽宁省（沈阳）"] = "辽宁省（沈阳）",
+                    ["辽宁省（其他地区）"] = "辽宁省（其他地区）",
+                    ["大连市"] = "大连市",
+                    ["吉林省（长春）"] = "吉林省（长春）",
+                    ["吉林省（其他地区）"] = "吉林省（其他地区）",
+                    ["黑龙江省（哈尔滨）"] = "黑龙江省（哈尔滨）",
+                    ["黑龙江省（其他地区）"] = "黑龙江省（其他地区）",
+                    ["上海市"] = "上海市",
+                    ["江苏省（南京、苏州、无锡、常州、镇江）"] = "江苏省（南京、苏州、无锡、常州、镇江）",
+                    ["江苏省（其他地区）"] = "江苏省（其他地区）",
+                    ["浙江省（杭州）"] = "浙江省（杭州）",
+                    ["浙江省（其他地区）"] = "浙江省（其他地区）",
+                    ["宁波市"] = "宁波市",
+                    ["安徽省"] = "安徽省",
+                    ["福建省（福州、泉州、平潭综合实验区）"] = "福建省（福州、泉州、平潭综合实验区）",
+                    ["福建省（其他地区）"] = "福建省（其他地区）",
+                    ["厦门市"] = "厦门市",
+                    ["江西省"] = "江西省",
+                    ["山东省（济南、淄博、枣庄、东营、潍坊、济宁、泰安）"] = "山东省（济南、淄博、枣庄、东营、潍坊、济宁、泰安）",
+                    ["山东省（其他地区）"] = "山东省（其他地区）",
+                    ["青岛市"] = "青岛市",
+                    ["河南省（郑州）"] = "河南省（郑州）",
+                    ["河南省（其他地区）"] = "河南省（其他地区）",
+                    ["湖北省（武汉）"] = "湖北省（武汉）",
+                    ["湖北省（其他地区）"] = "湖北省（其他地区）",
+                    ["湖南省（长沙）"] = "湖南省（长沙）",
+                    ["湖南省（其他地区）"] = "湖南省（其他地区）",
+                    ["广东省（广州、珠海、佛山、东莞、中山、江门）"] = "广东省（广州、珠海、佛山、东莞、中山、江门）",
+                    ["广东省（其他地区）"] = "广东省（其他地区）",
+                    ["深圳市"] = "深圳市",
+                    ["广西（南宁）"] = "广西（南宁）",
+                    ["广西（其他地区）"] = "广西（其他地区）",
+                    ["海南省(海口、文昌、澄迈县）"] = "海南省(海口、文昌、澄迈县）",
+                    ["海南省（其他地区）"] = "海南省（其他地区）",
+                    ["重庆市（9个中心城区、北部新区）"] = "重庆市（9个中心城区、北部新区）",
+                    ["重庆市(其他地区)"] = "重庆市(其他地区)",
+                    ["四川省（成都）"] = "四川省（成都）",
+                    ["四川省（其他地区）"] = "四川省（其他地区）",
+                    ["贵州省（贵阳）"] = "贵州省（贵阳）",
+                    ["贵州省（其他地区）"] = "贵州省（其他地区）",
+                    ["云南省（昆明、大理州、丽江、迪庆州、西双版纳州）"] = "云南省（昆明、大理州、丽江、迪庆州、西双版纳州）",
+                    ["云南省（其他地区）"] = "云南省（其他地区）",
+                    ["西藏（拉萨）"] = "西藏（拉萨）",
+                    ["西藏（其他地区）"] = "西藏（其他地区）",
+                    ["陕西省（西安）"] = "陕西省（西安）",
+                    ["陕西省（其他地区）"] = "陕西省（其他地区）",
+                    ["甘肃省（兰州）"] = "甘肃省（兰州）",
+                    ["甘肃省(其他地区)"] = "甘肃省(其他地区)",
+                    ["青海省（西宁）"] = "青海省（西宁）",
+                    ["青海省（其他地区）"] = "青海省（其他地区）",
+                    ["宁夏（银川）"] = "宁夏（银川）",
+                    ["宁夏（其他地区）"] = "宁夏（其他地区）",
+                    ["新疆（乌鲁木齐）"] = "新疆（乌鲁木齐）",
+                    ["新疆（其他地区）"] = "新疆（其他地区）"
+                },
+                ["安排状态"] = new Dictionary<string, string>
+                {
+                    ["未安排"] = "未安排",
+                    ["安排"] = "安排"
+                },
+                ["交通费"] = new Dictionary<string, string>
+                {
+                    ["未安排"] = "未安排",
+                    ["安排"] = "安排"
+                }
+            };
+            
+            Console.WriteLine($"初始化下拉框映射，共 {dropdownMappings.Count} 个字段");
+        }
+
+        private bool IsDropdownField(string headerName)
+        {
+            return dropdownMappings.ContainsKey(headerName);
+        }
+
+        private async Task SelectDropdown(string headerName, string displayValue)
+        {
+            try
+            {
+                string elementId = GetElementId(headerName);
+                if (string.IsNullOrEmpty(elementId))
+                {
+                    Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的下拉框ID");
+                    return;
+                }
+
+                Console.WriteLine($"      选择下拉框: {headerName} -> {elementId} = {displayValue}");
+                
+                // 获取映射的值
+                string mappedValue = GetDropdownMappedValue(headerName, displayValue);
+                if (string.IsNullOrEmpty(mappedValue))
+                {
+                    Console.WriteLine($"      警告：未找到显示值 '{displayValue}' 对应的映射值");
+                    return;
+                }
+
+                Console.WriteLine($"      下拉框映射: {displayValue} -> {mappedValue}");
+                
+                // 实现实际的下拉框选择逻辑
+                bool selected = false;
+                
+                // 方法1: 优先在iframe中查找
+                var frames = page.Frames;
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var selectElement = frame.Locator($"#{elementId}").First;
+                        if (await selectElement.CountAsync() > 0)
+                        {
+                            await selectElement.SelectOptionAsync(mappedValue);
+                            Console.WriteLine($"      在iframe中成功选择下拉框 {elementId}: {mappedValue}");
+                            selected = true;
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中查找下拉框失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                // 方法2: 如果iframe中找不到，尝试在主页面查找
+                if (!selected)
+                {
+                    try
+                    {
+                        await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                        await page.SelectOptionAsync($"#{elementId}", mappedValue);
+                        Console.WriteLine($"      在主页面成功选择下拉框 {elementId}: {mappedValue}");
+                        selected = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面查找下拉框失败: {ex.Message}");
+                    }
+                }
+                
+                if (!selected)
+                {
+                    Console.WriteLine($"      最终失败：无法找到下拉框 {elementId}");
+                }
+                
+                // 等待下拉框选择后的页面加载
+                await Task.Delay(500);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      选择下拉框失败: {ex.Message}");
+            }
+        }
+
+        private string GetDropdownMappedValue(string headerName, string displayValue)
+        {
+            if (dropdownMappings.ContainsKey(headerName) && 
+                dropdownMappings[headerName].ContainsKey(displayValue))
+            {
+                return dropdownMappings[headerName][displayValue];
+            }
+            return null;
+        }
+
+        private async Task InitializeBrowser()
+        {
+            try
+            {
+                Console.WriteLine("正在启动浏览器...");
+                
+                playwright = await Playwright.CreateAsync();
+                browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+                {
+                    Headless = false, // 显示浏览器窗口
+                    SlowMo = 100 // 放慢操作速度，便于观察
+                });
+                
+                page = await browser.NewPageAsync();
+                
+                // 设置页面超时时间
+                page.SetDefaultTimeout(10000); // 10秒
+                
+                Console.WriteLine("浏览器启动成功");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"浏览器启动失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task NavigateToTargetPage()
+        {
+            try
+            {
+                Console.WriteLine("正在导航到目标网页...");
+                
+                // 目标URL（电子科技大学财务系统）
+                string targetUrl = "https://cwcx.uestc.edu.cn/WFManager/home.jsp";
+                
+                await page.GotoAsync(targetUrl);
+                
+                Console.WriteLine($"成功导航到页面: {targetUrl}");
+                
+                // 等待页面加载完成
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+                
+                Console.WriteLine("页面加载完成");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"页面导航失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task Cleanup()
+        {
+            try
+            {
+                if (page != null)
+                {
+                    await page.CloseAsync();
+                }
+                
+                if (browser != null)
+                {
+                    await browser.CloseAsync();
+                }
+                
+                if (playwright != null)
+                {
+                    playwright.Dispose();
+                }
+                
+                Console.WriteLine("浏览器已关闭");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"清理资源时出错: {ex.Message}");
+            }
         }
     }
 }
