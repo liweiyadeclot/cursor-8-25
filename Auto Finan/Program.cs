@@ -190,6 +190,9 @@ namespace AutoFinan
                             {
                                 Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
                                 await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
+                                
+                                // 更新外层循环的行号，跳过已经处理过的行
+                                row = nextRow;
                             }
                             break; // 跳出当前行的列循环，继续处理下一行
                         }
@@ -305,25 +308,25 @@ namespace AutoFinan
                 
                 Console.WriteLine($"子序列第 {row} 行处理完成");
                 
-                // 检查下一行的子序列结束列是否标记为"是"
-                if (subsequenceEndColIndex > 0 && row + 1 <= totalRows)
+                // 检查当前行的子序列结束列是否标记为"是"
+                if (subsequenceEndColIndex > 0)
                 {
-                    var nextRowSubsequenceEndValue = worksheet.Cells[row + 1, subsequenceEndColIndex].Value?.ToString() ?? "";
-                    if (nextRowSubsequenceEndValue == SubsequenceMarker)
+                    var currentRowSubsequenceEndValue = worksheet.Cells[row, subsequenceEndColIndex].Value?.ToString() ?? "";
+                    if (currentRowSubsequenceEndValue == SubsequenceMarker)
                     {
-                        Console.WriteLine($"检测到下一行({row + 1})的子序列结束标记，结束子序列处理");
-                        Console.WriteLine($"程序将从第 {row + 1} 行继续正常处理逻辑");
-                        return row + 1; // 返回下一行的行号
+                        Console.WriteLine($"检测到当前行({row})的子序列结束标记，结束子序列处理");
+                        Console.WriteLine($"程序将从第 {row} 行继续正常处理逻辑");
+                        return row; // 返回当前行的行号
                     }
                     else
                     {
-                        Console.WriteLine($"下一行({row + 1})的子序列结束列未标记为'是'，继续处理下一行");
+                        Console.WriteLine($"当前行({row})的子序列结束列未标记为'是'，继续处理下一行");
                     }
                 }
             }
             
             Console.WriteLine("=== 子序列处理逻辑结束 ===");
-            return 0; // 如果没有找到子序列结束标记，返回0
+            return totalRows + 1; // 如果没有找到子序列结束标记，返回下一行
         }
 
         private async Task ProcessCell(string columnName, int row, string headerName, string cellValue)
@@ -352,32 +355,38 @@ namespace AutoFinan
                 Console.WriteLine($"      检测到Radio按钮操作: {radioValue}");
                 await ClickRadioButton(radioValue);
             }
-            // 4. 科目输入框操作（以#开头）
+            // 4. 银行卡选择操作（以*开头）
+            else if (cellValue.StartsWith("*"))
+            {
+                Console.WriteLine($"      检测到银行卡选择操作: {cellValue}");
+                await SelectCardByNumber(cellValue);
+            }
+            // 5. 科目输入框操作（以#开头）
             else if (cellValue.StartsWith("#"))
             {
                 Console.WriteLine($"      检测到科目输入框操作: {cellValue}");
                 await FillSubjectInput(headerName, cellValue);
             }
-            // 5. 下拉框选择操作
+            // 6. 下拉框选择操作
             else if (IsDropdownField(headerName))
             {
                 Console.WriteLine($"      检测到下拉框选择操作: {headerName} = {cellValue}");
                 await SelectDropdown(headerName, cellValue);
             }
-            // 6. 日期选择操作（格式：yyyy-mm-dd）
+            // 7. 日期选择操作（格式：yyyy-mm-dd）
             else if (IsDate(cellValue))
             {
                 Console.WriteLine($"      检测到日期选择操作: {cellValue}");
                 await SelectDate(headerName, cellValue);
             }
-            // 7. 金额输入框操作（需要与科目配对）
+            // 8. 金额输入框操作（需要与科目配对）
             else if (headerName == "金额" && !string.IsNullOrEmpty(currentSubjectId))
             {
                 Console.WriteLine($"      检测到金额输入框操作: {cellValue}");
                 await FillAmountInput(currentSubjectId, cellValue);
                 currentSubjectId = null; // 清空当前科目ID
             }
-            // 8. 一般输入框操作
+            // 9. 一般输入框操作
             else
             {
                 Console.WriteLine($"      检测到输入框操作: {cellValue}");
@@ -415,6 +424,13 @@ namespace AutoFinan
                         {
                             await inputElement.FillAsync(value);
                             Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {value}");
+                            
+                            // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                            if (IsBankCardField(headerName))
+                            {
+                                await TriggerBankCardSelection(inputElement);
+                            }
+                            
                             filled = true;
                             break;
                         }
@@ -434,6 +450,14 @@ namespace AutoFinan
                         await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
                         await page.FillAsync($"#{elementId}", value);
                         Console.WriteLine($"      在主页面成功填写输入框 {elementId}: {value}");
+                        
+                        // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                        if (IsBankCardField(headerName))
+                        {
+                            var inputElement = page.Locator($"#{elementId}").First;
+                            await TriggerBankCardSelection(inputElement);
+                        }
+                        
                         filled = true;
                     }
                     catch (Exception ex)
@@ -454,6 +478,13 @@ namespace AutoFinan
                             {
                                 await inputElement.FillAsync(value);
                                 Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
+                                
+                                // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                                if (IsBankCardField(headerName))
+                                {
+                                    await TriggerBankCardSelection(inputElement);
+                                }
+                                
                                 filled = true;
                                 break;
                             }
@@ -1299,6 +1330,278 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      填写金额到科目输入框失败: {ex.Message}");
+            }
+        }
+
+        private async Task SelectCardByNumber(string cardValue)
+        {
+            try
+            {
+                // 提取卡号尾号（去掉*前缀）
+                string cardTail = cardValue.Substring(1);
+                
+                Console.WriteLine($"      开始选择卡号尾号: {cardTail}");
+                
+                // 等待页面加载完成
+                Console.WriteLine($"      等待页面加载...");
+                await Task.Delay(3000);
+                
+                bool selected = false;
+                
+                // 等待jQuery UI对话框出现
+                Console.WriteLine($"      等待银行卡选择对话框出现...");
+                await Task.Delay(2000); // 等待对话框加载
+                
+                // 在对话框中查找银行卡表格
+                selected = await SelectCardInDialog(cardTail);
+                
+                // 方法1: 优先在iframe中查找包含指定卡号尾号的td元素，然后找到同行的radio按钮
+                var frames = page.Frames;
+                Console.WriteLine($"      开始搜索 {frames.Count} 个iframe中的银行卡表格");
+                
+                // 添加调试信息：检查页面中是否有银行卡相关的元素
+                try
+                {
+                    var allRadioButtons = page.Locator("input[type='radio'][name='rdoacnt']").AllAsync();
+                    Console.WriteLine($"      主页面找到 {allRadioButtons.Result.Count} 个银行卡radio按钮");
+                    
+                    // 检查页面中是否有包含"卡号"的文本
+                    var cardNumberTexts = page.Locator("text=卡号").AllAsync();
+                    Console.WriteLine($"      主页面找到 {cardNumberTexts.Result.Count} 个包含'卡号'的文本元素");
+                    
+                    foreach (var frame in frames)
+                    {
+                        var frameRadioButtons = frame.Locator("input[type='radio'][name='rdoacnt']").AllAsync();
+                        Console.WriteLine($"      iframe中找到 {frameRadioButtons.Result.Count} 个银行卡radio按钮");
+                        
+                        var frameCardTexts = frame.Locator("text=卡号").AllAsync();
+                        Console.WriteLine($"      iframe中找到 {frameCardTexts.Result.Count} 个包含'卡号'的文本元素");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      调试信息获取失败: {ex.Message}");
+                }
+                
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        // 先检查这个iframe中是否有银行卡表格
+                        var tableElements = frame.Locator("table").AllAsync();
+                        var tableCount = tableElements.Result.Count;
+                        Console.WriteLine($"      当前iframe中找到 {tableCount} 个表格");
+                        
+                        if (tableCount > 0)
+                        {
+                            // 直接使用Python代码的XPath选择器逻辑
+                            string radioSelector = $"//tr[td[contains(text(), '{cardTail}')]]/td/input[@type='radio'][@name='rdoacnt']";
+                            Console.WriteLine($"      尝试XPath选择器: {radioSelector}");
+                            
+                            try
+                            {
+                                var radioElement = frame.Locator(radioSelector).First;
+                                var radioCount = await radioElement.CountAsync();
+                                Console.WriteLine($"      找到 {radioCount} 个匹配的radio按钮");
+                                
+                                if (radioCount > 0)
+                                {
+                                    await radioElement.ClickAsync();
+                                    Console.WriteLine($"      在iframe中成功选择卡号尾号 {cardTail} 对应的radio按钮");
+                                    await Task.Delay(1000); // 等待元素响应
+                                    selected = true;
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"      XPath选择器执行失败: {ex.Message}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中查找radio按钮失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                // 方法2: 如果iframe中找不到，尝试在主页面查找
+                if (!selected)
+                {
+                    try
+                    {
+                        string radioSelector = $"//tr[td[contains(text(), '{cardTail}')]]/td/input[@type='radio'][@name='rdoacnt']";
+                        var radioElement = page.Locator(radioSelector).First;
+                        if (await radioElement.CountAsync() > 0)
+                        {
+                            await radioElement.ClickAsync();
+                            Console.WriteLine($"      在主页面成功选择卡号尾号 {cardTail} 对应的radio按钮");
+                            await Task.Delay(1000); // 等待元素响应
+                            selected = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面查找radio按钮失败: {ex.Message}");
+                    }
+                }
+                
+                // 方法3: 尝试更通用的选择器 - 使用onclick属性中包含卡号尾号的方式
+                if (!selected)
+                {
+                    try
+                    {
+                        string radioSelector = $"input[type='radio'][name='rdoacnt'][onclick*='{cardTail}']";
+                        Console.WriteLine($"      尝试onclick选择器: {radioSelector}");
+                        
+                        // 先在主页面尝试
+                        var radioElement = page.Locator(radioSelector).First;
+                        var mainPageCount = await radioElement.CountAsync();
+                        Console.WriteLine($"      主页面找到 {mainPageCount} 个匹配的radio按钮");
+                        
+                        if (mainPageCount > 0)
+                        {
+                            await radioElement.ClickAsync();
+                            Console.WriteLine($"      通过onclick属性成功选择卡号尾号 {cardTail} 对应的radio按钮");
+                            await Task.Delay(1000); // 等待元素响应
+                            selected = true;
+                        }
+                        
+                        // 在iframe中尝试
+                        if (!selected)
+                        {
+                            foreach (var frame in frames)
+                            {
+                                try
+                                {
+                                    var radioElement2 = frame.Locator(radioSelector).First;
+                                    var frameCount = await radioElement2.CountAsync();
+                                    Console.WriteLine($"      当前iframe中找到 {frameCount} 个匹配的radio按钮");
+                                    
+                                    if (frameCount > 0)
+                                    {
+                                        await radioElement2.ClickAsync();
+                                        Console.WriteLine($"      在iframe中通过onclick属性成功选择卡号尾号 {cardTail} 对应的radio按钮");
+                                        await Task.Delay(1000); // 等待元素响应
+                                        selected = true;
+                                        break;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"      在iframe中通过onclick属性查找失败: {ex.Message}");
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      通过onclick属性查找失败: {ex.Message}");
+                    }
+                }
+                
+                if (!selected)
+                {
+                    Console.WriteLine($"      警告：未找到卡号尾号 {cardTail} 对应的radio按钮");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      选择银行卡失败: {ex.Message}");
+            }
+        }
+
+        private bool IsBankCardField(string headerName)
+        {
+            // 检查是否是银行卡相关字段
+            string[] bankCardFields = { "转卡信息工号", "卡号尾号", "银行卡", "银行账号" };
+            return bankCardFields.Any(field => headerName.Contains(field));
+        }
+
+        private async Task TriggerBankCardSelection(ILocator inputElement)
+        {
+            try
+            {
+                Console.WriteLine($"      触发银行卡选择事件...");
+                
+                // 方法1: 按回车键
+                await inputElement.PressAsync("Enter");
+                Console.WriteLine($"      已按回车键触发银行卡选择");
+                
+                // 等待一下，让事件处理完成
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      触发银行卡选择事件失败: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> SelectCardInDialog(string cardTail)
+        {
+            try
+            {
+                Console.WriteLine($"      在对话框中查找卡号尾号: {cardTail}");
+                
+                // 等待对话框加载完成
+                await page.WaitForSelectorAsync(".ui-dialog", new PageWaitForSelectorOptions { Timeout = 5000 });
+                Console.WriteLine($"      对话框加载完成");
+                
+                // 方法1: 使用XPath查找包含卡号尾号的td元素所在的行，然后找到该行中的radio按钮
+                try
+                {
+                    string radioSelector = $"//tr[td[contains(text(), '{cardTail}')]]/td/input[@type='radio'][@name='rdoacnt']";
+                    Console.WriteLine($"      尝试XPath选择器: {radioSelector}");
+                    
+                    var radioElement = page.Locator(radioSelector).First;
+                    var radioCount = await radioElement.CountAsync();
+                    Console.WriteLine($"      找到 {radioCount} 个匹配的radio按钮");
+                    
+                    if (radioCount > 0)
+                    {
+                        await radioElement.ClickAsync();
+                        Console.WriteLine($"      在对话框中成功选择卡号尾号 {cardTail} 对应的radio按钮");
+                        await Task.Delay(1000); // 等待元素响应
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      XPath选择器执行失败: {ex.Message}");
+                }
+                
+                // 方法2: 使用onclick属性中包含卡号尾号的方式
+                try
+                {
+                    string radioSelector = $"input[type='radio'][name='rdoacnt'][onclick*='{cardTail}']";
+                    Console.WriteLine($"      尝试onclick选择器: {radioSelector}");
+                    
+                    var radioElement = page.Locator(radioSelector).First;
+                    var radioCount = await radioElement.CountAsync();
+                    Console.WriteLine($"      找到 {radioCount} 个匹配的radio按钮");
+                    
+                    if (radioCount > 0)
+                    {
+                        await radioElement.ClickAsync();
+                        Console.WriteLine($"      在对话框中通过onclick属性成功选择卡号尾号 {cardTail} 对应的radio按钮");
+                        await Task.Delay(1000); // 等待元素响应
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      onclick选择器执行失败: {ex.Message}");
+                }
+                
+                Console.WriteLine($"      在对话框中未找到卡号尾号 {cardTail} 对应的radio按钮");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      在对话框中选择银行卡失败: {ex.Message}");
+                return false;
             }
         }
 
