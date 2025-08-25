@@ -49,6 +49,7 @@ namespace AutoFinan
         private IPlaywright playwright;
         private IBrowser browser;
         private IPage page;
+        private string currentSubjectId; // 存储当前科目ID，用于金额填写
 
         public async Task RunAsync()
         {
@@ -369,7 +370,14 @@ namespace AutoFinan
                 Console.WriteLine($"      检测到日期选择操作: {cellValue}");
                 await SelectDate(headerName, cellValue);
             }
-            // 7. 一般输入框操作
+            // 7. 金额输入框操作（需要与科目配对）
+            else if (headerName == "金额" && !string.IsNullOrEmpty(currentSubjectId))
+            {
+                Console.WriteLine($"      检测到金额输入框操作: {cellValue}");
+                await FillAmountInput(currentSubjectId, cellValue);
+                currentSubjectId = null; // 清空当前科目ID
+            }
+            // 8. 一般输入框操作
             else
             {
                 Console.WriteLine($"      检测到输入框操作: {cellValue}");
@@ -1126,6 +1134,9 @@ namespace AutoFinan
 
                 Console.WriteLine($"      找到科目输入框ID: {subjectName} -> {elementId}");
                 
+                // 存储当前科目ID，供后续金额填写使用
+                currentSubjectId = elementId;
+                
                 // 特殊处理：科目和金额填写（需要等待页面加载）
                 if (headerName == "科目" || headerName == "金额")
                 {
@@ -1146,8 +1157,9 @@ namespace AutoFinan
                         var inputElement = frame.Locator($"#{elementId}").First;
                         if (await inputElement.CountAsync() > 0)
                         {
-                            await inputElement.FillAsync(cellValue);
-                            Console.WriteLine($"      在iframe中成功填写科目输入框 {elementId}: {cellValue}");
+                            // 对于科目输入框，我们需要等待下一个单元格（金额）的值
+                            // 这里先记录科目ID，等待后续的金额值
+                            Console.WriteLine($"      找到科目输入框 {elementId}，等待金额值...");
                             filled = true;
                             break;
                         }
@@ -1165,8 +1177,7 @@ namespace AutoFinan
                     try
                     {
                         await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
-                        await page.FillAsync($"#{elementId}", cellValue);
-                        Console.WriteLine($"      在主页面成功填写科目输入框 {elementId}: {cellValue}");
+                        Console.WriteLine($"      在主页面找到科目输入框 {elementId}，等待金额值...");
                         filled = true;
                     }
                     catch (Exception ex)
@@ -1185,8 +1196,7 @@ namespace AutoFinan
                             var inputElement = frame.Locator($"input[name='{elementId}']").First;
                             if (await inputElement.CountAsync() > 0)
                             {
-                                await inputElement.FillAsync(cellValue);
-                                Console.WriteLine($"      在iframe中通过name属性成功填写科目输入框 {elementId}: {cellValue}");
+                                Console.WriteLine($"      在iframe中通过name属性找到科目输入框 {elementId}，等待金额值...");
                                 filled = true;
                                 break;
                             }
@@ -1207,6 +1217,88 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      填写科目输入框失败: {ex.Message}");
+            }
+        }
+
+        private async Task FillAmountInput(string subjectId, string amountValue)
+        {
+            try
+            {
+                Console.WriteLine($"      填写金额到科目输入框: {subjectId} = {amountValue}");
+                
+                // 实现实际的金额输入框填写逻辑
+                bool filled = false;
+                
+                // 方法1: 优先在iframe中查找
+                var frames = page.Frames;
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var inputElement = frame.Locator($"#{subjectId}").First;
+                        if (await inputElement.CountAsync() > 0)
+                        {
+                            await inputElement.FillAsync(amountValue);
+                            Console.WriteLine($"      在iframe中成功填写金额到科目输入框 {subjectId}: {amountValue}");
+                            filled = true;
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中查找科目输入框失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                // 方法2: 如果iframe中找不到，尝试在主页面查找
+                if (!filled)
+                {
+                    try
+                    {
+                        await page.WaitForSelectorAsync($"#{subjectId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                        await page.FillAsync($"#{subjectId}", amountValue);
+                        Console.WriteLine($"      在主页面成功填写金额到科目输入框 {subjectId}: {amountValue}");
+                        filled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面查找科目输入框失败: {ex.Message}");
+                    }
+                }
+                
+                // 方法3: 如果还是找不到，尝试通过name属性查找
+                if (!filled)
+                {
+                    foreach (var frame in frames)
+                    {
+                        try
+                        {
+                            var inputElement = frame.Locator($"input[name='{subjectId}']").First;
+                            if (await inputElement.CountAsync() > 0)
+                            {
+                                await inputElement.FillAsync(amountValue);
+                                Console.WriteLine($"      在iframe中通过name属性成功填写金额到科目输入框 {subjectId}: {amountValue}");
+                                filled = true;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      在iframe中通过name属性查找失败: {ex.Message}");
+                            continue;
+                        }
+                    }
+                }
+                
+                if (!filled)
+                {
+                    Console.WriteLine($"      最终失败：无法找到科目输入框 {subjectId} 来填写金额");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      填写金额到科目输入框失败: {ex.Message}");
             }
         }
 
