@@ -459,7 +459,7 @@ namespace AutoFinan
                 await WaitOperation(cellValue);
             }
             // 2. 按钮点击操作（以$开头）
-            else if (cellValue == "$点击")
+            else if (cellValue == "$点击" || cellValue == "$预约")
             {
                 Console.WriteLine($"      检测到按钮点击操作: {headerName}");
                 await ClickButton(headerName);
@@ -628,6 +628,14 @@ namespace AutoFinan
         {
             try
             {
+                // 特殊处理：预约按钮（表格中的按钮）- 需要优先处理，不需要查找ID
+                if (headerName == "预约按钮")
+                {
+                    Console.WriteLine("      检测到预约按钮，在表格中查找第一行的预约按钮");
+                    await ClickAppointmentButton();
+                    return;
+                }
+                
                 string elementId = GetElementId(headerName);
                 if (string.IsNullOrEmpty(elementId))
                 {
@@ -652,13 +660,13 @@ namespace AutoFinan
                     await FillCaptcha(captcha);
                 }
                 
-                // 特殊处理：网上预约报账按钮（导航按钮）
-                if (headerName == "网上预约报账按钮")
-                {
-                    Console.WriteLine("      检测到网上预约报账按钮，使用导航功能");
-                    await ClickNavigationButton();
-                    return;
-                }
+                                 // 特殊处理：网上预约报账按钮（导航按钮）
+                 if (headerName == "网上预约报账按钮")
+                 {
+                     Console.WriteLine("      检测到网上预约报账按钮，使用导航功能");
+                     await ClickNavigationButton();
+                     return;
+                 }
                 
                 // 实现实际的按钮点击逻辑
                 bool clicked = false;
@@ -891,83 +899,218 @@ namespace AutoFinan
             }
         }
 
-        private async Task ClickNavigationButton()
-        {
-            try
-            {
-                Console.WriteLine("      开始处理网上预约报账导航按钮...");
-                
-                // 方法1: 通过onclick属性查找
-                try
-                {
-                    var navigationElement = page.Locator("div[onclick*='navToPrj(\"WF_YB6\")']").First;
-                    if (await navigationElement.CountAsync() > 0)
-                    {
-                        await navigationElement.ClickAsync();
-                        Console.WriteLine("      成功点击网上预约报账导航按钮（通过onclick属性）");
-                        await Task.Delay(2000); // 等待页面跳转
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"      通过onclick属性查找失败: {ex.Message}");
-                }
-                
-                // 方法2: 通过JavaScript直接调用
-                try
-                {
-                    await page.EvaluateAsync("navToPrj('WF_YB6')");
-                    Console.WriteLine("      成功调用navToPrj('WF_YB6')函数");
-                    await Task.Delay(2000); // 等待页面跳转
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"      JavaScript调用失败: {ex.Message}");
-                }
-                
-                // 方法3: 通过class和onclick组合查找
-                try
-                {
-                    var syslinkElement = page.Locator("div.syslink[onclick*='WF_YB6']").First;
-                    if (await syslinkElement.CountAsync() > 0)
-                    {
-                        await syslinkElement.ClickAsync();
-                        Console.WriteLine("      成功点击网上预约报账导航按钮（通过class+onclick）");
-                        await Task.Delay(2000); // 等待页面跳转
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"      通过class+onclick查找失败: {ex.Message}");
-                }
-                
-                // 方法4: 通过第一个syslink元素查找（如果只有一个导航选项）
-                try
-                {
-                    var firstSyslink = page.Locator("div.syslink").First;
-                    if (await firstSyslink.CountAsync() > 0)
-                    {
-                        await firstSyslink.ClickAsync();
-                        Console.WriteLine("      成功点击第一个导航按钮");
-                        await Task.Delay(2000); // 等待页面跳转
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"      点击第一个导航按钮失败: {ex.Message}");
-                }
-                
-                Console.WriteLine("      警告：无法找到网上预约报账导航按钮");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"      点击导航按钮失败: {ex.Message}");
-            }
-        }
+                 private async Task ClickNavigationButton()
+         {
+             try
+             {
+                 Console.WriteLine("      开始处理网上预约报账导航按钮...");
+                 
+                 // 方法1: 通过onclick属性查找
+                 try
+                 {
+                     var navigationElement = page.Locator("div[onclick*='navToPrj(\"WF_YB6\")']").First;
+                     if (await navigationElement.CountAsync() > 0)
+                     {
+                         await navigationElement.ClickAsync();
+                         Console.WriteLine("      成功点击网上预约报账导航按钮（通过onclick属性）");
+                         await Task.Delay(2000); // 等待页面跳转
+                         return;
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     Console.WriteLine($"      通过onclick属性查找失败: {ex.Message}");
+                 }
+                 
+                 // 方法2: 通过JavaScript直接调用
+                 try
+                 {
+                     await page.EvaluateAsync("navToPrj('WF_YB6')");
+                     Console.WriteLine("      成功调用navToPrj('WF_YB6')函数");
+                     await Task.Delay(2000); // 等待页面跳转
+                     return;
+                 }
+                 catch (Exception ex)
+                 {
+                     Console.WriteLine($"      JavaScript调用失败: {ex.Message}");
+                 }
+                 
+                 // 方法3: 通过class和onclick组合查找
+                 try
+                 {
+                     var syslinkElement = page.Locator("div.syslink[onclick*='WF_YB6']").First;
+                     if (await syslinkElement.CountAsync() > 0)
+                     {
+                         await syslinkElement.ClickAsync();
+                         Console.WriteLine("      成功点击网上预约报账导航按钮（通过class+onclick）");
+                         await Task.Delay(2000); // 等待页面跳转
+                         return;
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     Console.WriteLine($"      通过class+onclick查找失败: {ex.Message}");
+                 }
+                 
+                 // 方法4: 通过第一个syslink元素查找（如果只有一个导航选项）
+                 try
+                 {
+                     var firstSyslink = page.Locator("div.syslink").First;
+                     if (await firstSyslink.CountAsync() > 0)
+                     {
+                         await firstSyslink.ClickAsync();
+                         Console.WriteLine("      成功点击第一个导航按钮");
+                         await Task.Delay(2000); // 等待页面跳转
+                         return;
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     Console.WriteLine($"      点击第一个导航按钮失败: {ex.Message}");
+                 }
+                 
+                 Console.WriteLine("      警告：无法找到网上预约报账导航按钮");
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"      点击导航按钮失败: {ex.Message}");
+             }
+         }
+
+         private async Task ClickAppointmentButton()
+         {
+             try
+             {
+                 Console.WriteLine("      开始处理预约按钮...");
+                 
+                 // 等待页面加载
+                 await Task.Delay(2000);
+                 
+                 // 方法1: 在iframe中查找表格中的第一行预约按钮
+                 var frames = page.Frames;
+                 foreach (var frame in frames)
+                 {
+                     try
+                     {
+                         // 查找表格中的第一行预约按钮 - 使用更精确的选择器
+                         var firstAppointmentButton = frame.Locator("table.ui-jqgrid-btable tr:first-child button[btnname='预约']").First;
+                         if (await firstAppointmentButton.CountAsync() > 0)
+                         {
+                             await firstAppointmentButton.ClickAsync();
+                             Console.WriteLine("      在iframe中成功点击第一行预约按钮");
+                             await Task.Delay(2000); // 等待页面响应
+                             return;
+                         }
+                         
+                         // 备用方法：通过ID模式查找第一个预约按钮（ID格式：colbtn数字_0_0）
+                         var firstAppointmentButtonById = frame.Locator("button[id^='colbtn'][id$='_0_0']").First;
+                         if (await firstAppointmentButtonById.CountAsync() > 0)
+                         {
+                             await firstAppointmentButtonById.ClickAsync();
+                             Console.WriteLine("      在iframe中通过ID模式成功点击第一行预约按钮");
+                             await Task.Delay(2000); // 等待页面响应
+                             return;
+                         }
+                         
+                         // 备用方法2：查找表格中第一行的按钮
+                         var firstRowButton = frame.Locator("table.ui-jqgrid-btable tr:first-child td:last-child button").First;
+                         if (await firstRowButton.CountAsync() > 0)
+                         {
+                             await firstRowButton.ClickAsync();
+                             Console.WriteLine("      在iframe中成功点击表格第一行最后一个单元格的按钮");
+                             await Task.Delay(2000); // 等待页面响应
+                             return;
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"      在iframe中查找预约按钮失败: {ex.Message}");
+                         continue;
+                     }
+                 }
+                 
+                 // 方法2: 在主页面查找表格中的第一行预约按钮
+                 try
+                 {
+                     var firstAppointmentButton = page.Locator("table.ui-jqgrid-btable tr:first-child button[btnname='预约']").First;
+                     if (await firstAppointmentButton.CountAsync() > 0)
+                     {
+                         await firstAppointmentButton.ClickAsync();
+                         Console.WriteLine("      在主页面成功点击第一行预约按钮");
+                         await Task.Delay(2000); // 等待页面响应
+                         return;
+                     }
+                     
+                     // 备用方法：通过ID模式查找第一个预约按钮（ID格式：colbtn数字_0_0）
+                     var firstAppointmentButtonById = page.Locator("button[id^='colbtn'][id$='_0_0']").First;
+                     if (await firstAppointmentButtonById.CountAsync() > 0)
+                     {
+                         await firstAppointmentButtonById.ClickAsync();
+                         Console.WriteLine("      在主页面通过ID模式成功点击第一行预约按钮");
+                         await Task.Delay(2000); // 等待页面响应
+                         return;
+                     }
+                     
+                     // 备用方法2：查找表格中第一行的按钮
+                     var firstRowButton = page.Locator("table.ui-jqgrid-btable tr:first-child td:last-child button").First;
+                     if (await firstRowButton.CountAsync() > 0)
+                     {
+                         await firstRowButton.ClickAsync();
+                         Console.WriteLine("      在主页面成功点击表格第一行最后一个单元格的按钮");
+                         await Task.Delay(2000); // 等待页面响应
+                         return;
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     Console.WriteLine($"      在主页面查找预约按钮失败: {ex.Message}");
+                 }
+                 
+                 // 方法3: 使用更通用的选择器
+                 try
+                 {
+                     var firstAppointmentButton = page.Locator("button[btnname='预约']").First;
+                     if (await firstAppointmentButton.CountAsync() > 0)
+                     {
+                         await firstAppointmentButton.ClickAsync();
+                         Console.WriteLine("      成功点击第一个预约按钮");
+                         await Task.Delay(2000); // 等待页面响应
+                         return;
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     Console.WriteLine($"      使用通用选择器查找预约按钮失败: {ex.Message}");
+                 }
+                 
+                 // 方法4: 在iframe中使用通用选择器
+                 foreach (var frame in frames)
+                 {
+                     try
+                     {
+                         var firstAppointmentButton = frame.Locator("button[btnname='预约']").First;
+                         if (await firstAppointmentButton.CountAsync() > 0)
+                         {
+                             await firstAppointmentButton.ClickAsync();
+                             Console.WriteLine("      在iframe中成功点击第一个预约按钮");
+                             await Task.Delay(2000); // 等待页面响应
+                             return;
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"      在iframe中使用通用选择器查找预约按钮失败: {ex.Message}");
+                         continue;
+                     }
+                 }
+                 
+                 Console.WriteLine("      警告：无法找到预约按钮");
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"      点击预约按钮失败: {ex.Message}");
+             }
+         }
 
                  private async Task ClickRadioButton(string radioValue)
          {
