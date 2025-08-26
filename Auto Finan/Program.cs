@@ -38,7 +38,7 @@ namespace AutoFinan
     {
         private const string ExcelFilePath = "报销信息.xlsx";
         private const string MappingFilePath = "标题-ID.xlsx";
-        private const string SheetName = "ChaiLv_sheet";
+        private const string SheetName = "LaoWu_sheet";
         private const string MappingSheetName = "Sheet1"; // 标题-ID映射表的工作表名
         private const string SubsequenceStartColumn = "子序列开始";
         private const string SubsequenceEndColumn = "子序列结束";
@@ -1757,13 +1757,15 @@ namespace AutoFinan
                      ["冲销其它项目借款"] = "9",
                      ["公务卡认证还款"] = "15"
                  },
-                 ["人员类型"] = new Dictionary<string, string>
+                 ["人员类别"] = new Dictionary<string, string>
                  {
-                     ["院士"] = "院士",
-                     ["国家级人才或同等层次人才"] = "国家级人才或同等层次人才",
-                     ["2级教授"] = "2级教授",
-                     ["高级职称人员"] = "高级职称人员",
-                     ["其他人员"] = "其他人员"
+                     ["学生"] = "T^行内转卡/4-学生",
+                     ["退休人员"] = "T^行内转卡/2-退休人员",
+                     ["在职人员"] = "T^行内转卡/2-在职人员",
+                     ["长期聘用人员"] = "T^行内转卡/2-长期聘用人员",
+                     ["全部人员"] = "TF^行内转卡/2-全部人员",
+                     ["博士后"] = "T^行内转卡/2-博士后",
+                     ["校外人员"] = "F^行内转卡/7-校外人员"
                  },
                  ["省份"] = new Dictionary<string, string>
                  {
@@ -1839,6 +1841,11 @@ namespace AutoFinan
                  {
                      ["未安排"] = "未安排",
                      ["安排"] = "安排"
+                 },
+                 ["酬金性质"] = new Dictionary<string, string>
+                 {
+                     ["劳务费"] = "13",
+                     ["省部级及以上奖励"] = "45"
                  },
                  ["安排状态"] = new Dictionary<string, string>
                  {
