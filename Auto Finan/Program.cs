@@ -553,6 +553,18 @@ namespace AutoFinan
                                 await TriggerBankCardSelection(inputElement);
                             }
 
+                            // 如果是奖助学金项目号，自动按回车键并选择表格第一行
+                            if (headerName == "奖助学金项目号")
+                            {
+                                Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
+                                await inputElement.PressAsync("Enter");
+                                Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
+                                await Task.Delay(1000); // 等待页面响应
+                                
+                                // 自动选择表格第一行
+                                await SelectFirstTableRow();
+                            }
+
                             filled = true;
                             break;
                         }
@@ -580,6 +592,19 @@ namespace AutoFinan
                             await TriggerBankCardSelection(inputElement);
                         }
 
+                        // 如果是奖助学金项目号，自动按回车键并选择表格第一行
+                        if (headerName == "奖助学金项目号")
+                        {
+                            Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
+                            var inputElement = page.Locator($"#{elementId}").First;
+                            await inputElement.PressAsync("Enter");
+                            Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
+                            await Task.Delay(1000); // 等待页面响应
+                            
+                            // 自动选择表格第一行
+                            await SelectFirstTableRow();
+                        }
+
                         filled = true;
                     }
                     catch (Exception ex)
@@ -598,17 +623,29 @@ namespace AutoFinan
                             var inputElement = frame.Locator($"input[name='{elementId}']").First;
                             if (await inputElement.CountAsync() > 0)
                             {
-                                await inputElement.FillAsync(value);
-                                Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
+                                                            await inputElement.FillAsync(value);
+                            Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
 
-                                // 如果是银行卡相关字段，触发事件来弹出选择窗口
-                                if (IsBankCardField(headerName))
-                                {
-                                    await TriggerBankCardSelection(inputElement);
-                                }
+                            // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                            if (IsBankCardField(headerName))
+                            {
+                                await TriggerBankCardSelection(inputElement);
+                            }
 
-                                filled = true;
-                                break;
+                            // 如果是奖助学金项目号，自动按回车键并选择表格第一行
+                            if (headerName == "奖助学金项目号")
+                            {
+                                Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
+                                await inputElement.PressAsync("Enter");
+                                Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
+                                await Task.Delay(1000); // 等待页面响应
+                                
+                                // 自动选择表格第一行
+                                await SelectFirstTableRow();
+                            }
+
+                            filled = true;
+                            break;
                             }
                         }
                         catch (Exception ex)
@@ -1055,6 +1092,98 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      回车键操作失败: {ex.Message}");
+            }
+        }
+
+        private async Task SelectFirstTableRow()
+        {
+            try
+            {
+                Console.WriteLine("      开始选择表格第一行...");
+                await Task.Delay(1000); // 等待表格加载
+
+                // 方法1: 在主页面查找表格第一行
+                try
+                {
+                    var firstRow = page.Locator("#gridWF_GF6_418 tr[id*='418_']").First;
+                    if (await firstRow.CountAsync() > 0)
+                    {
+                        await firstRow.ClickAsync();
+                        Console.WriteLine("      成功在主页面点击表格第一行");
+                        await Task.Delay(500); // 等待页面响应
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      在主页面查找表格第一行失败: {ex.Message}");
+                }
+
+                // 方法2: 在iframe中查找表格第一行
+                var frames = page.Frames;
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var firstRow = frame.Locator("#gridWF_GF6_418 tr[id*='418_']").First;
+                        if (await firstRow.CountAsync() > 0)
+                        {
+                            await firstRow.ClickAsync();
+                            Console.WriteLine("      成功在iframe中点击表格第一行");
+                            await Task.Delay(500); // 等待页面响应
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中查找表格第一行失败: {ex.Message}");
+                        continue;
+                    }
+                }
+
+                // 方法3: 使用更通用的选择器
+                try
+                {
+                    var firstRow = page.Locator("table.ui-jqgrid-btable tr[id*='418_']").First;
+                    if (await firstRow.CountAsync() > 0)
+                    {
+                        await firstRow.ClickAsync();
+                        Console.WriteLine("      成功使用通用选择器点击表格第一行");
+                        await Task.Delay(500); // 等待页面响应
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      使用通用选择器查找表格第一行失败: {ex.Message}");
+                }
+
+                // 方法4: 在iframe中使用通用选择器
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var firstRow = frame.Locator("table.ui-jqgrid-btable tr[id*='418_']").First;
+                        if (await firstRow.CountAsync() > 0)
+                        {
+                            await firstRow.ClickAsync();
+                            Console.WriteLine("      成功在iframe中使用通用选择器点击表格第一行");
+                            await Task.Delay(500); // 等待页面响应
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中使用通用选择器查找表格第一行失败: {ex.Message}");
+                        continue;
+                    }
+                }
+
+                Console.WriteLine("      警告：无法找到表格第一行");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      选择表格第一行失败: {ex.Message}");
             }
         }
 
@@ -2025,6 +2154,12 @@ namespace AutoFinan
                 {
                     ["未安排"] = "未安排",
                     ["安排"] = "安排"
+                },
+                ["奖助学金性质"] = new Dictionary<string, string>
+                {
+                    ["导师助研助学金"] = "导师助研助学金",
+                    ["科研经费博士助研费（基本）"] = "科研经费博士助研费（基本）",
+                    ["科研经费博士助研费（奖励）"] = "科研经费博士助研费（奖励）"
                 }
             };
 
