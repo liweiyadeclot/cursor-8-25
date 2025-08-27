@@ -38,7 +38,7 @@ namespace AutoFinan
     {
         private const string ExcelFilePath = "报销信息.xlsx";
         private const string MappingFilePath = "标题-ID.xlsx";
-        private const string SheetName = "LaoWu_sheet";
+        private const string SheetName = "ZhuYan_sheet";
         private const string MappingSheetName = "Sheet1"; // 标题-ID映射表的工作表名
         private const string SubsequenceStartColumn = "子序列开始";
         private const string SubsequenceEndColumn = "子序列结束";
@@ -458,6 +458,12 @@ namespace AutoFinan
                 Console.WriteLine($"      检测到等待操作: {cellValue}");
                 await WaitOperation(cellValue);
             }
+            // 2. 回车键操作（列标题为"回车"，值为"$点击"）
+            else if (headerName == "回车" && cellValue == "$点击")
+            {
+                Console.WriteLine($"      检测到回车键操作");
+                await PressEnterKey();
+            }
             // 2. 按钮点击操作（以$开头）
             else if (cellValue == "$点击" || cellValue == "$预约")
             {
@@ -653,6 +659,89 @@ namespace AutoFinan
 
                 Console.WriteLine($"      点击按钮: {headerName} -> {elementId}");
 
+                // 特殊处理：JavaScript函数调用
+                if (elementId.StartsWith("navToPrj(") && elementId.EndsWith(")"))
+                {
+                    Console.WriteLine($"      检测到JavaScript函数调用: {elementId}");
+                    try
+                    {
+                        await page.EvaluateAsync(elementId);
+                        Console.WriteLine($"      成功执行JavaScript函数: {elementId}");
+                        await Task.Delay(2000); // 等待页面跳转
+                        
+                        // 打印页面信息以确认是否跳转到新页面
+                        try
+                        {
+                            var currentUrl = page.Url;
+                            var currentTitle = await page.TitleAsync();
+                            Console.WriteLine($"      当前页面URL: {currentUrl}");
+                            Console.WriteLine($"      当前页面标题: {currentTitle}");
+                            
+                            // 检查是否有新标签页打开
+                            var contexts = browser.Contexts;
+                            Console.WriteLine($"      当前浏览器共有 {contexts.Count} 个上下文");
+                            
+                            foreach (var context in contexts)
+                            {
+                                var pages = context.Pages;
+                                Console.WriteLine($"      上下文中有 {pages.Count} 个页面");
+                                
+                                for (int i = 0; i < pages.Count; i++)
+                                {
+                                    var pageUrl = pages[i].Url;
+                                    Console.WriteLine($"        页面 {i + 1}: {pageUrl}");
+                                }
+                            }
+                            
+                            // 检查当前页面URL是否变化
+                            if (currentUrl.Contains("WF_GF6_NEW") || currentUrl.Contains("WF_YB6"))
+                            {
+                                Console.WriteLine("      确认：当前页面已跳转到新页面");
+                            }
+                            else
+                            {
+                                Console.WriteLine("      注意：当前页面URL未变化，尝试切换到新标签页");
+                                
+                                // 尝试切换到新标签页
+                                try
+                                {
+                                    foreach (var context in contexts)
+                                    {
+                                        var pages = context.Pages;
+                                        for (int i = 0; i < pages.Count; i++)
+                                        {
+                                            var pageUrl = pages[i].Url;
+                                            if (pageUrl.Contains("WF_GF6_NEW") || pageUrl.Contains("WF_YB6"))
+                                            {
+                                                // 切换到新标签页
+                                                page = pages[i];
+                                                Console.WriteLine($"      成功切换到新标签页: {pageUrl}");
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    Console.WriteLine("      未找到目标新标签页");
+                                }
+                                catch (Exception switchEx)
+                                {
+                                    Console.WriteLine($"      切换标签页失败: {switchEx.Message}");
+                                }
+                            }
+                        }
+                        catch (Exception infoEx)
+                        {
+                            Console.WriteLine($"      获取页面信息失败: {infoEx.Message}");
+                        }
+                        
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      JavaScript函数执行失败: {ex.Message}");
+                        return;
+                    }
+                }
+
                 // 特殊处理：登录按钮需要等待验证码输入
                 if (headerName == "登录按钮")
                 {
@@ -675,6 +764,8 @@ namespace AutoFinan
                     await ClickNavigationButton();
                     return;
                 }
+
+
 
                 // 实现实际的按钮点击逻辑
                 bool clicked = false;
@@ -909,6 +1000,64 @@ namespace AutoFinan
             }
         }
 
+        private async Task PressEnterKey()
+        {
+            try
+            {
+                Console.WriteLine("      开始模拟回车键操作...");
+
+                // 方法1: 在当前页面按回车键
+                try
+                {
+                    await page.Keyboard.PressAsync("Enter");
+                    Console.WriteLine("      成功在当前页面按回车键");
+                    await Task.Delay(500); // 等待页面响应
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      在当前页面按回车键失败: {ex.Message}");
+                }
+
+                // 方法2: 在iframe中按回车键
+                var frames = page.Frames;
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        await frame.EvaluateAsync("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));");
+                        Console.WriteLine("      成功在iframe中按回车键");
+                        await Task.Delay(500); // 等待页面响应
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中按回车键失败: {ex.Message}");
+                        continue;
+                    }
+                }
+
+                // 方法3: 在焦点元素上按回车键
+                try
+                {
+                    await page.EvaluateAsync("document.activeElement && document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));");
+                    Console.WriteLine("      成功在焦点元素上按回车键");
+                    await Task.Delay(500); // 等待页面响应
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      在焦点元素上按回车键失败: {ex.Message}");
+                }
+
+                Console.WriteLine("      警告：无法执行回车键操作");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      回车键操作失败: {ex.Message}");
+            }
+        }
+
         private async Task ClickNavigationButton()
         {
             try
@@ -986,6 +1135,8 @@ namespace AutoFinan
                 Console.WriteLine($"      点击导航按钮失败: {ex.Message}");
             }
         }
+
+
 
         private async Task ClickAppointmentButton()
         {
