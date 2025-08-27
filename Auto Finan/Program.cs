@@ -38,7 +38,7 @@ namespace AutoFinan
     {
         private const string ExcelFilePath = "报销信息.xlsx";
         private const string MappingFilePath = "标题-ID.xlsx";
-        private const string SheetName = "ZhuYan_sheet";
+        private const string SheetName = "BaoXiao_sheet";
         private const string MappingSheetName = "Sheet1"; // 标题-ID映射表的工作表名
         private const string SubsequenceStartColumn = "子序列开始";
         private const string SubsequenceEndColumn = "子序列结束";
@@ -837,10 +837,12 @@ namespace AutoFinan
 
                 // 方法1: 优先在iframe中通过btnname属性查找
                 var frames = page.Frames;
+                Console.WriteLine($"      开始查找按钮，共有 {frames.Count} 个iframe");
                 foreach (var frame in frames)
                 {
                     try
                     {
+                        Console.WriteLine($"      在iframe中通过btnname查找按钮: button[btnname='{elementId}']");
                         var buttonElement = frame.Locator($"button[btnname='{elementId}']").First;
                         if (await buttonElement.CountAsync() > 0)
                         {
@@ -848,6 +850,10 @@ namespace AutoFinan
                             Console.WriteLine($"      在iframe中通过btnname成功点击按钮: {elementId}");
                             clicked = true;
                             break;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      在iframe中未找到btnname为 '{elementId}' 的按钮");
                         }
                     }
                     catch (Exception ex)
@@ -864,6 +870,7 @@ namespace AutoFinan
                     {
                         try
                         {
+                            Console.WriteLine($"      在iframe中通过ID查找按钮: #{elementId}");
                             var buttonElement = frame.Locator($"#{elementId}").First;
                             if (await buttonElement.CountAsync() > 0)
                             {
@@ -871,6 +878,10 @@ namespace AutoFinan
                                 Console.WriteLine($"      在iframe中通过ID成功点击按钮: {elementId}");
                                 clicked = true;
                                 break;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      在iframe中未找到ID为 '{elementId}' 的按钮");
                             }
                         }
                         catch (Exception ex)
