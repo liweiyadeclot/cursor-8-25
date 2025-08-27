@@ -838,6 +838,8 @@ namespace AutoFinan
             }
         }
 
+
+
         private async Task FillCaptcha(string captcha)
         {
             try
@@ -2449,6 +2451,8 @@ namespace AutoFinan
                 // 设置页面超时时间
                 page.SetDefaultTimeout(10000); // 10秒
 
+
+
                 Console.WriteLine("浏览器启动成功");
             }
             catch (Exception ex)
@@ -2457,6 +2461,8 @@ namespace AutoFinan
                 throw;
             }
         }
+
+
 
         private async Task NavigateToTargetPage()
         {
