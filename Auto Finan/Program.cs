@@ -564,6 +564,14 @@ namespace AutoFinan
                                 // 自动选择表格第一行
                                 await SelectFirstTableRow();
                             }
+                            // 如果是奖助学金工号，自动按回车键
+                            else if (headerName == "奖助学金工号")
+                            {
+                                Console.WriteLine("      检测到奖助学金工号，自动按回车键");
+                                await inputElement.PressAsync("Enter");
+                                Console.WriteLine("      成功在奖助学金工号输入框中按回车键");
+                                await Task.Delay(1000); // 等待页面响应
+                            }
 
                             filled = true;
                             break;
@@ -604,6 +612,15 @@ namespace AutoFinan
                             // 自动选择表格第一行
                             await SelectFirstTableRow();
                         }
+                        // 如果是奖助学金工号，自动按回车键
+                        else if (headerName == "奖助学金工号")
+                        {
+                            Console.WriteLine("      检测到奖助学金工号，自动按回车键");
+                            var inputElement = page.Locator($"#{elementId}").First;
+                            await inputElement.PressAsync("Enter");
+                            Console.WriteLine("      成功在奖助学金工号输入框中按回车键");
+                            await Task.Delay(1000); // 等待页面响应
+                        }
 
                         filled = true;
                     }
@@ -642,6 +659,14 @@ namespace AutoFinan
                                 
                                 // 自动选择表格第一行
                                 await SelectFirstTableRow();
+                            }
+                            // 如果是奖助学金工号，自动按回车键
+                            else if (headerName == "奖助学金工号")
+                            {
+                                Console.WriteLine("      检测到奖助学金工号，自动按回车键");
+                                await inputElement.PressAsync("Enter");
+                                Console.WriteLine("      成功在奖助学金工号输入框中按回车键");
+                                await Task.Delay(1000); // 等待页面响应
                             }
 
                             filled = true;
