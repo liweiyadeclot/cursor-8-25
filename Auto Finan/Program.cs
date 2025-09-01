@@ -6,9 +6,26 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace AutoFinan
 {
+    public class AppConfig
+    {
+        public string ExcelFilePath { get; set; } = "报销信息.xlsx";
+        public string MappingFilePath { get; set; } = "标题-ID.xlsx";
+        public string SheetName { get; set; } = "ChaiLv_sheet";
+        public string MappingSheetName { get; set; } = "Sheet1";
+        public Dictionary<string, ScreenPosition> ScreenPositions { get; set; } = new Dictionary<string, ScreenPosition>();
+    }
+
+    public class ScreenPosition
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public string Description { get; set; }
+    }
+
     class Program
     {
         static async Task Main(string[] args)
@@ -36,10 +53,7 @@ namespace AutoFinan
 
     public class ReimbursementAutomation
     {
-        private const string ExcelFilePath = "报销信息.xlsx";
-        private const string MappingFilePath = "标题-ID.xlsx";
-        private const string SheetName = "BaoXiao_sheet";
-        private const string MappingSheetName = "Sheet1"; // 标题-ID映射表的工作表名
+        private AppConfig config;
         private const string SubsequenceStartColumn = "子序列开始";
         private const string SubsequenceEndColumn = "子序列结束";
         private const string SubsequenceMarker = "是";
@@ -53,9 +67,28 @@ namespace AutoFinan
         private string currentSubjectId; // 存储当前科目ID，用于金额填写
         private bool isInSecondSubsequence = false; // 标记是否在第二种子序列中
         private int subsequenceRowIndex = 0; // 第二种子序列中的行序号（从0开始）
+        private PythonScriptExecutor pythonExecutor; // Python脚本执行器
 
         public async Task RunAsync()
         {
+            Console.WriteLine("开始读取配置文件...");
+
+            // 加载配置文件
+            await LoadConfiguration();
+
+            // 初始化Python脚本执行器
+            try
+            {
+                pythonExecutor = new PythonScriptExecutor();
+                Console.WriteLine("Python脚本执行器初始化成功");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Python脚本执行器初始化失败: {ex.Message}");
+                Console.WriteLine("将跳过Python脚本相关功能");
+                pythonExecutor = null;
+            }
+
             Console.WriteLine("开始读取Excel文件...");
 
             // 获取当前执行目录
@@ -64,12 +97,12 @@ namespace AutoFinan
 
             // 尝试多个可能的文件路径
             string[] possiblePaths = {
-                ExcelFilePath,
-                Path.Combine(currentDirectory, ExcelFilePath),
-                Path.Combine(currentDirectory, "..", ExcelFilePath),
-                Path.Combine(currentDirectory, "..", "..", ExcelFilePath),
-                Path.Combine(currentDirectory, "..", "..", "..", ExcelFilePath),
-                Path.Combine(currentDirectory, "..", "..", "..", "..", ExcelFilePath)
+                config.ExcelFilePath,
+                Path.Combine(currentDirectory, config.ExcelFilePath),
+                Path.Combine(currentDirectory, "..", config.ExcelFilePath),
+                Path.Combine(currentDirectory, "..", "..", config.ExcelFilePath),
+                Path.Combine(currentDirectory, "..", "..", "..", config.ExcelFilePath),
+                Path.Combine(currentDirectory, "..", "..", "..", "..", config.ExcelFilePath)
             };
 
             string actualExcelPath = null;
@@ -85,7 +118,7 @@ namespace AutoFinan
 
             if (actualExcelPath == null)
             {
-                Console.WriteLine($"错误：找不到文件 {ExcelFilePath}");
+                Console.WriteLine($"错误：找不到文件 {config.ExcelFilePath}");
                 Console.WriteLine("尝试过的路径:");
                 foreach (string path in possiblePaths)
                 {
@@ -114,14 +147,14 @@ namespace AutoFinan
 
             using (var package = new ExcelPackage(new FileInfo(actualExcelPath)))
             {
-                var worksheet = package.Workbook.Worksheets[SheetName];
+                var worksheet = package.Workbook.Worksheets[config.SheetName];
                 if (worksheet == null)
                 {
-                    Console.WriteLine($"错误：找不到工作表 {SheetName}");
+                    Console.WriteLine($"错误：找不到工作表 {config.SheetName}");
                     return;
                 }
 
-                Console.WriteLine($"成功加载工作表: {SheetName}");
+                Console.WriteLine($"成功加载工作表: {config.SheetName}");
 
                 // 获取数据范围
                 int rowCount = worksheet.Dimension?.Rows ?? 0;
@@ -282,7 +315,7 @@ namespace AutoFinan
 
             // 获取Excel文件所在目录
             string excelDirectory = Path.GetDirectoryName(excelFilePath);
-            string mappingFilePath = Path.Combine(excelDirectory, MappingFilePath);
+            string mappingFilePath = Path.Combine(excelDirectory, config.MappingFilePath);
 
             if (!File.Exists(mappingFilePath))
             {
@@ -294,10 +327,10 @@ namespace AutoFinan
 
             using (var package = new ExcelPackage(new FileInfo(mappingFilePath)))
             {
-                var worksheet = package.Workbook.Worksheets[MappingSheetName];
+                var worksheet = package.Workbook.Worksheets[config.MappingSheetName];
                 if (worksheet == null)
                 {
-                    Console.WriteLine($"错误：找不到工作表 {MappingSheetName}");
+                    Console.WriteLine($"错误：找不到工作表 {config.MappingSheetName}");
                     return;
                 }
 
@@ -560,7 +593,7 @@ namespace AutoFinan
                                 await inputElement.PressAsync("Enter");
                                 Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
                                 await Task.Delay(1000); // 等待页面响应
-                                
+
                                 // 自动选择表格第一行
                                 await SelectFirstTableRow();
                             }
@@ -608,7 +641,7 @@ namespace AutoFinan
                             await inputElement.PressAsync("Enter");
                             Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
                             await Task.Delay(1000); // 等待页面响应
-                            
+
                             // 自动选择表格第一行
                             await SelectFirstTableRow();
                         }
@@ -640,37 +673,37 @@ namespace AutoFinan
                             var inputElement = frame.Locator($"input[name='{elementId}']").First;
                             if (await inputElement.CountAsync() > 0)
                             {
-                                                            await inputElement.FillAsync(value);
-                            Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
+                                await inputElement.FillAsync(value);
+                                Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
 
-                            // 如果是银行卡相关字段，触发事件来弹出选择窗口
-                            if (IsBankCardField(headerName))
-                            {
-                                await TriggerBankCardSelection(inputElement);
-                            }
+                                // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                                if (IsBankCardField(headerName))
+                                {
+                                    await TriggerBankCardSelection(inputElement);
+                                }
 
-                            // 如果是奖助学金项目号，自动按回车键并选择表格第一行
-                            if (headerName == "奖助学金项目号")
-                            {
-                                Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
-                                await inputElement.PressAsync("Enter");
-                                Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
-                                await Task.Delay(1000); // 等待页面响应
-                                
-                                // 自动选择表格第一行
-                                await SelectFirstTableRow();
-                            }
-                            // 如果是奖助学金工号，自动按回车键
-                            else if (headerName == "奖助学金工号")
-                            {
-                                Console.WriteLine("      检测到奖助学金工号，自动按回车键");
-                                await inputElement.PressAsync("Enter");
-                                Console.WriteLine("      成功在奖助学金工号输入框中按回车键");
-                                await Task.Delay(1000); // 等待页面响应
-                            }
+                                // 如果是奖助学金项目号，自动按回车键并选择表格第一行
+                                if (headerName == "奖助学金项目号")
+                                {
+                                    Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
+                                    await inputElement.PressAsync("Enter");
+                                    Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
+                                    await Task.Delay(1000); // 等待页面响应
 
-                            filled = true;
-                            break;
+                                    // 自动选择表格第一行
+                                    await SelectFirstTableRow();
+                                }
+                                // 如果是奖助学金工号，自动按回车键
+                                else if (headerName == "奖助学金工号")
+                                {
+                                    Console.WriteLine("      检测到奖助学金工号，自动按回车键");
+                                    await inputElement.PressAsync("Enter");
+                                    Console.WriteLine("      成功在奖助学金工号输入框中按回车键");
+                                    await Task.Delay(1000); // 等待页面响应
+                                }
+
+                                filled = true;
+                                break;
                             }
                         }
                         catch (Exception ex)
@@ -696,6 +729,14 @@ namespace AutoFinan
         {
             try
             {
+                // 特殊处理：打印确认单按钮 - 使用固定选择器直接点击
+                if (headerName == "打印确认单" || headerName == "打印确认单按钮")
+                {
+                    Console.WriteLine("      检测到打印确认单按钮，使用特殊处理方式");
+                    await ClickPrintConfirmButton();
+                    return;
+                }
+
                 // 特殊处理：预约按钮（表格中的按钮）- 需要优先处理，不需要查找ID
                 if (headerName == "预约按钮")
                 {
@@ -730,7 +771,7 @@ namespace AutoFinan
                         await page.EvaluateAsync(elementId);
                         Console.WriteLine($"      成功执行JavaScript函数: {elementId}");
                         await Task.Delay(2000); // 等待页面跳转
-                        
+
                         // 打印页面信息以确认是否跳转到新页面
                         try
                         {
@@ -738,23 +779,23 @@ namespace AutoFinan
                             var currentTitle = await page.TitleAsync();
                             Console.WriteLine($"      当前页面URL: {currentUrl}");
                             Console.WriteLine($"      当前页面标题: {currentTitle}");
-                            
+
                             // 检查是否有新标签页打开
                             var contexts = browser.Contexts;
                             Console.WriteLine($"      当前浏览器共有 {contexts.Count} 个上下文");
-                            
+
                             foreach (var context in contexts)
                             {
                                 var pages = context.Pages;
                                 Console.WriteLine($"      上下文中有 {pages.Count} 个页面");
-                                
+
                                 for (int i = 0; i < pages.Count; i++)
                                 {
                                     var pageUrl = pages[i].Url;
                                     Console.WriteLine($"        页面 {i + 1}: {pageUrl}");
                                 }
                             }
-                            
+
                             // 检查当前页面URL是否变化
                             if (currentUrl.Contains("WF_GF6_NEW") || currentUrl.Contains("WF_YB6"))
                             {
@@ -763,7 +804,7 @@ namespace AutoFinan
                             else
                             {
                                 Console.WriteLine("      注意：当前页面URL未变化，尝试切换到新标签页");
-                                
+
                                 // 尝试切换到新标签页
                                 try
                                 {
@@ -794,7 +835,7 @@ namespace AutoFinan
                         {
                             Console.WriteLine($"      获取页面信息失败: {infoEx.Message}");
                         }
-                        
+
                         return;
                     }
                     catch (Exception ex)
@@ -825,6 +866,13 @@ namespace AutoFinan
                     Console.WriteLine("      检测到网上预约报账按钮，使用导航功能");
                     await ClickNavigationButton();
                     return;
+                }
+
+                // 特殊处理：打印确认单按钮
+                if (headerName == "打印确认单")
+                {
+                    Console.WriteLine("      检测到打印确认单按钮，先执行正常点击，然后调用Python脚本处理后续操作");
+                    // 不直接返回，继续执行下面的按钮点击逻辑
                 }
 
 
@@ -992,9 +1040,26 @@ namespace AutoFinan
                 {
                     Console.WriteLine($"      最终失败：无法找到按钮 {elementId}");
                 }
+                else
+                {
+                    Console.WriteLine($"      按钮点击状态: clicked = {clicked}");
+                }
 
                 // 等待按钮点击后的页面加载
                 await Task.Delay(1000);
+
+                // 特殊处理：如果是打印确认单按钮，调用Python脚本处理后续操作
+                if (headerName == "打印确认单" && clicked)
+                {
+                    Console.WriteLine("      按钮点击成功，开始调用Python脚本处理后续操作...");
+                    await HandlePrintConfirmButton();
+                }
+                else if (headerName == "打印确认单" && !clicked)
+                {
+                    Console.WriteLine("      警告：打印确认单按钮点击失败，但尝试调用Python脚本...");
+                    // 即使点击失败，也尝试调用Python脚本，因为可能按钮已经被点击了
+                    await HandlePrintConfirmButton();
+                }
             }
             catch (Exception ex)
             {
@@ -2925,6 +2990,67 @@ namespace AutoFinan
             }
         }
 
+        private async Task LoadConfiguration()
+        {
+            try
+            {
+                Console.WriteLine("开始加载配置文件...");
+
+                // 获取当前执行目录
+                string currentDirectory = Directory.GetCurrentDirectory();
+                Console.WriteLine($"当前工作目录: {currentDirectory}");
+
+                // 尝试多个可能的配置文件路径
+                string[] possibleConfigPaths = {
+                    "config.json",
+                    Path.Combine(currentDirectory, "config.json"),
+                    Path.Combine(currentDirectory, "..", "config.json"),
+                    Path.Combine(currentDirectory, "..", "..", "config.json"),
+                    Path.Combine(currentDirectory, "..", "..", "..", "config.json"),
+                    Path.Combine(currentDirectory, "..", "..", "..", "..", "config.json")
+                };
+
+                string configPath = null;
+                foreach (string path in possibleConfigPaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        configPath = path;
+                        Console.WriteLine($"找到配置文件: {path}");
+                        break;
+                    }
+                }
+
+                if (configPath == null)
+                {
+                    Console.WriteLine("警告：找不到配置文件，使用默认配置");
+                    config = new AppConfig();
+                    Console.WriteLine("使用默认配置:");
+                    Console.WriteLine($"  ExcelFilePath: {config.ExcelFilePath}");
+                    Console.WriteLine($"  MappingFilePath: {config.MappingFilePath}");
+                    Console.WriteLine($"  SheetName: {config.SheetName}");
+                    Console.WriteLine($"  MappingSheetName: {config.MappingSheetName}");
+                    return;
+                }
+
+                // 读取配置文件
+                string jsonContent = await File.ReadAllTextAsync(configPath);
+                config = JsonSerializer.Deserialize<AppConfig>(jsonContent);
+
+                Console.WriteLine("配置文件加载成功:");
+                Console.WriteLine($"  ExcelFilePath: {config.ExcelFilePath}");
+                Console.WriteLine($"  MappingFilePath: {config.MappingFilePath}");
+                Console.WriteLine($"  SheetName: {config.SheetName}");
+                Console.WriteLine($"  MappingSheetName: {config.MappingSheetName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"加载配置文件失败: {ex.Message}");
+                Console.WriteLine("使用默认配置");
+                config = new AppConfig();
+            }
+        }
+
         private async Task Cleanup()
         {
             try
@@ -2949,6 +3075,275 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"清理资源时出错: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 特殊处理打印确认单按钮点击
+        /// </summary>
+        private async Task ClickPrintConfirmButton()
+        {
+            try
+            {
+                Console.WriteLine("      ========================================");
+                Console.WriteLine("      开始特殊处理打印确认单按钮...");
+                Console.WriteLine("      ========================================");
+
+                // 直接使用iframe查找方法
+                Console.WriteLine("      直接在iframe中查找打印确认单按钮...");
+                
+                bool buttonClicked = false;
+                
+                try
+                {
+                    Console.WriteLine("      在iframe中查找按钮 #BtnPrint");
+                    var frames = page.Frames;
+                    Console.WriteLine($"      找到 {frames.Count} 个iframe");
+                    
+                    // 查找所有iframe
+                    for (int i = 0; i < frames.Count; i++)
+                    {
+                        try
+                        {
+                            Console.WriteLine($"      尝试在iframe {i + 1} 中查找按钮...");
+                            await frames[i].WaitForSelectorAsync("#BtnPrint", new FrameWaitForSelectorOptions { Timeout = 2000 });
+                            await frames[i].ClickAsync("#BtnPrint");
+                            Console.WriteLine($"      ✓ 成功：在iframe {i + 1} 中点击了打印确认单按钮");
+                            buttonClicked = true;
+                            break;
+                        }
+                        catch (Exception frameEx)
+                        {
+                            Console.WriteLine($"      在iframe {i + 1} 中查找失败: {frameEx.Message}");
+                            continue;
+                        }
+                    }
+                    
+                    if (!buttonClicked)
+                    {
+                        Console.WriteLine($"      所有 {frames.Count} 个iframe都查找失败，直接执行Python脚本");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      iframe查找失败: {ex.Message}");
+                }
+
+                // 无论是否点击成功，都直接执行Python脚本
+                if (buttonClicked)
+                {
+                    Console.WriteLine("      ✓ 打印确认单按钮点击成功！");
+                }
+                else
+                {
+                    Console.WriteLine("      ✗ 无法点击打印确认单按钮，但继续执行Python脚本");
+                }
+                
+                Console.WriteLine("      立即开始调用Python脚本处理后续操作...");
+                await HandlePrintConfirmButton();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      特殊处理打印确认单按钮时出错: {ex.Message}");
+                Console.WriteLine($"      详细错误信息: {ex}");
+                
+                // 即使出错，也尝试调用Python脚本
+                try
+                {
+                    Console.WriteLine("      尝试调用Python脚本作为备用方案...");
+                    await HandlePrintConfirmButton();
+                }
+                catch (Exception pyEx)
+                {
+                    Console.WriteLine($"      Python脚本调用也失败: {pyEx.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 处理打印确认单按钮点击
+        /// </summary>
+        private async Task HandlePrintConfirmButton()
+        {
+            try
+            {
+                Console.WriteLine("      ========================================");
+                Console.WriteLine("      开始处理打印确认单按钮后续操作...");
+                Console.WriteLine("      ========================================");
+
+                // 直接调用Python脚本，不等待页面响应
+                Console.WriteLine("      直接调用Python脚本处理后续操作...");
+
+                // 检查Python脚本执行器是否可用
+                if (pythonExecutor == null)
+                {
+                    Console.WriteLine("      警告：Python脚本执行器未初始化，无法执行后续的鼠标键盘自动化");
+                    Console.WriteLine("      打印确认单按钮已点击，但无法处理后续操作");
+                    return;
+                }
+
+                Console.WriteLine("      调用Python脚本处理后续的鼠标键盘自动化操作...");
+
+                // 直接调用Python脚本
+                string scriptPath = "test_mouse_keyboard.py";
+                string configPath = "config.json";
+                
+                // 尝试找到项目根目录的Python脚本
+                string[] possibleScriptPaths = {
+                    scriptPath, // 当前目录
+                    Path.Combine("..", "..", "..", "..", scriptPath), // 项目根目录
+                    Path.Combine("..", "..", "..", scriptPath), // 上级目录
+                    Path.Combine("..", "..", scriptPath) // 上上级目录
+                };
+                
+                string actualScriptPath = null;
+                foreach (string path in possibleScriptPaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        actualScriptPath = path;
+                        Console.WriteLine($"      找到Python脚本: {path}");
+                        break;
+                    }
+                }
+                
+                if (actualScriptPath == null)
+                {
+                    Console.WriteLine($"      ✗ 未找到Python脚本: {scriptPath}");
+                    return;
+                }
+                
+                Console.WriteLine($"      检查脚本文件: {scriptPath}");
+                if (!File.Exists(scriptPath))
+                {
+                    Console.WriteLine($"      ✗ 脚本文件不存在: {scriptPath}");
+                    Console.WriteLine($"      当前目录: {Directory.GetCurrentDirectory()}");
+                    Console.WriteLine("      请确保test_mouse_keyboard.py文件在当前目录中");
+                    return;
+                }
+                Console.WriteLine($"      ✓ 脚本文件存在: {scriptPath}");
+                
+                Console.WriteLine($"      检查配置文件: {configPath}");
+                if (!File.Exists(configPath))
+                {
+                    Console.WriteLine($"      ✗ 配置文件不存在: {configPath}");
+                    Console.WriteLine("      请确保config.json文件在当前目录中");
+                    return;
+                }
+                Console.WriteLine($"      ✓ 配置文件存在: {configPath}");
+
+                // 从config.json读取文件夹路径
+                string folderPath = "C:\\Users\\FH\\Documents\\报销单"; // 默认路径
+                try
+                {
+                    // 尝试多个可能的配置文件路径
+                    string[] possibleConfigPaths = {
+                        configPath, // 当前目录
+                        Path.Combine("..", "..", "..", "..", configPath), // 项目根目录
+                        Path.Combine("..", "..", "..", configPath), // 上级目录
+                        Path.Combine("..", "..", configPath) // 上上级目录
+                    };
+                    
+                    string actualConfigPath = null;
+                    foreach (string path in possibleConfigPaths)
+                    {
+                        if (File.Exists(path))
+                        {
+                            actualConfigPath = path;
+                            Console.WriteLine($"      找到配置文件: {path}");
+                            break;
+                        }
+                    }
+                    
+                    if (actualConfigPath != null)
+                    {
+                        string configContent = File.ReadAllText(actualConfigPath);
+                        var config = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(configContent);
+                        if (config.ContainsKey("SaveFolderPath"))
+                        {
+                            folderPath = config["SaveFolderPath"].ToString();
+                            Console.WriteLine($"      从配置文件读取保存路径: {folderPath}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      配置文件中未找到SaveFolderPath，使用默认路径: {folderPath}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"      未找到配置文件，使用默认路径: {folderPath}");
+                    }
+                }
+                catch (Exception configEx)
+                {
+                    Console.WriteLine($"      读取配置文件失败，使用默认路径: {configEx.Message}");
+                }
+
+                // 执行Python脚本处理后续操作（如打印对话框等）
+                // 使用config.json中的坐标配置，简化文件名
+                string fileName = $"{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+                string arguments = $"--config config.json --folder \"{folderPath}\" --file \"{fileName}\"";
+                
+                Console.WriteLine($"      执行命令: python {scriptPath} {arguments}");
+                Console.WriteLine($"      工作目录: {Directory.GetCurrentDirectory()}");
+                
+                Console.WriteLine($"      开始执行Python脚本...");
+                Console.WriteLine($"      Python解释器: {pythonExecutor.GetType().GetField("_pythonExecutable", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(pythonExecutor)}");
+                
+                var result = await pythonExecutor.ExecuteScriptAsync(
+                    scriptPath: actualScriptPath,
+                    arguments: arguments,
+                    timeoutMilliseconds: 120000 // 2分钟超时
+                );
+
+                Console.WriteLine($"      执行结果 - 成功: {result.Success}, 退出码: {result.ExitCode}");
+                Console.WriteLine($"      标准输出长度: {result.Output?.Length ?? 0}");
+                Console.WriteLine($"      错误输出长度: {result.Error?.Length ?? 0}");
+                
+                if (!string.IsNullOrEmpty(result.Output))
+                {
+                    Console.WriteLine($"      标准输出内容: {result.Output}");
+                }
+                
+                if (!string.IsNullOrEmpty(result.Error))
+                {
+                    Console.WriteLine($"      错误输出内容: {result.Error}");
+                }
+
+                if (result.Success)
+                {
+                    Console.WriteLine("      ✓ 打印确认单后续处理成功！");
+                    if (!string.IsNullOrEmpty(result.Output))
+                    {
+                        Console.WriteLine($"      输出: {result.Output}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("      ✗ 打印确认单后续处理失败");
+                    if (!string.IsNullOrEmpty(result.Error))
+                    {
+                        Console.WriteLine($"      错误: {result.Error}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("      错误: 无错误信息");
+                    }
+                    if (!string.IsNullOrEmpty(result.Output))
+                    {
+                        Console.WriteLine($"      输出: {result.Output}");
+                    }
+                    Console.WriteLine("      请检查：");
+                    Console.WriteLine("      1. Python环境是否正确安装");
+                    Console.WriteLine("      2. test_mouse_keyboard.py脚本是否存在");
+                    Console.WriteLine("      3. config.json中的坐标配置是否正确");
+                    Console.WriteLine("      4. 运行 debug_python_execution.bat 进行详细诊断");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      处理打印确认单按钮时出错: {ex.Message}");
+                Console.WriteLine($"      详细错误信息: {ex}");
             }
         }
     }

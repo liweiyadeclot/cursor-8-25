@@ -2279,7 +2279,7 @@ class LoginAutomation:
     
     async def click_print_button(self):
         """
-        先点击网页上的打印确认单按钮，然后等待5秒，最后使用坐标点击Chrome打印对话框
+        先点击网页上的打印确认单按钮，然后等待2秒，最后自动执行Python脚本处理打印对话框
         """
         try:
             logger.info("查找网页上的打印确认单按钮...")
@@ -2293,45 +2293,14 @@ class LoginAutomation:
             if print_button_found:
                 logger.info("✓ 网页打印确认单按钮点击成功")
                 
-                # 等待5秒钟，确保Chrome打印页面完全加载
-                logger.info("等待5秒钟，确保Chrome打印页面加载完成...")
-                await asyncio.sleep(5)
+                # 等待2秒钟，确保Chrome打印页面完全加载
+                logger.info("等待2秒钟，确保Chrome打印页面加载完成...")
+                await asyncio.sleep(2)
                 
-                # 从配置中获取Chrome打印对话框中保存按钮的坐标
-                from config import PRINT_DIALOG_COORDINATES
-                coords = PRINT_DIALOG_COORDINATES
-                chrome_print_x = coords["print_button"]["x"]
-                chrome_print_y = coords["print_button"]["y"]
+                # 自动执行Python脚本处理打印对话框
+                logger.info("开始自动执行Python脚本处理打印对话框...")
+                await self.auto_execute_python_print_dialog()
                 
-                logger.info(f"使用坐标点击Chrome打印对话框中的保存按钮: ({chrome_print_x}, {chrome_print_y})")
-                
-                # 使用坐标点击Chrome打印对话框中的保存按钮
-                logger.info(f"尝试点击坐标: ({chrome_print_x}, {chrome_print_y})")
-                await self.page.mouse.click(chrome_print_x, chrome_print_y)
-                logger.info("✓ Chrome打印对话框保存按钮点击成功")
-                
-                # 等待一下，看看是否真的点击成功了
-                await asyncio.sleep(1)
-                
-                # 检查是否出现了文件保存对话框（通过检查是否有文件路径输入框）
-                logger.info("检查是否出现文件保存对话框...")
-                try:
-                    # 尝试点击文件路径输入框，如果成功说明文件保存对话框已出现
-                    coords = PRINT_DIALOG_COORDINATES
-                    filepath_x = coords["filepath_input"]["x"]
-                    filepath_y = coords["filepath_input"]["y"]
-                    
-                    await self.page.mouse.click(filepath_x, filepath_y)
-                    logger.info("✓ 文件保存对话框已出现，继续处理...")
-                except Exception as e:
-                    logger.warning(f"文件保存对话框可能未出现: {e}")
-                    logger.info("尝试重新点击Chrome打印对话框中的保存按钮...")
-                    # 再次尝试点击保存按钮
-                    await self.page.mouse.click(chrome_print_x, chrome_print_y)
-                    await asyncio.sleep(1)
-                
-                # 处理文件保存对话框
-                await self.handle_print_dialog()
             else:
                 logger.error("❌ 网页打印确认单按钮点击失败")
                 
@@ -2570,12 +2539,91 @@ class LoginAutomation:
         except Exception as e:
             logger.error(f"备用方案点击打印按钮失败: {e}")
     
-    async def handle_print_dialog(self):
+    async def auto_execute_python_print_dialog(self):
         """
-        处理打印对话框
+        自动执行Python脚本处理打印对话框
         """
         try:
-            logger.info("开始处理打印对话框...")
+            logger.info("开始自动执行Python脚本处理打印对话框...")
+            
+            # 获取当前记录的项目号和总金额信息
+            project_number = self.get_current_project_number()
+            total_amount = self.get_current_total_amount()
+            
+            logger.info(f"项目号: {project_number}, 总金额: {total_amount}")
+            
+            # 从config中获取文件路径
+            from config import PRINT_FILE_PATH
+            file_path = PRINT_FILE_PATH
+            
+            # 生成带时间戳的文件名
+            import time
+            file_name = f"报销单_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
+            
+            logger.info(f"准备保存文件: {file_name}")
+            logger.info(f"保存路径: {file_path}")
+            
+            # 执行Python脚本处理打印对话框
+            success = await self._execute_python_print_script(file_path, file_name)
+            
+            if success:
+                logger.info("✓ Python脚本处理打印对话框成功")
+                logger.info(f"文件已保存到: {file_path}/{file_name}")
+            else:
+                logger.warning("⚠ Python脚本处理失败，尝试备用方案")
+                await self._handle_print_dialog_fallback()
+                
+        except Exception as e:
+            logger.error(f"自动执行Python脚本失败: {e}")
+            logger.info("尝试备用方案处理打印对话框")
+            await self._handle_print_dialog_fallback()
+    
+    async def _execute_python_print_script(self, file_path, file_name):
+        """
+        执行Python脚本处理打印对话框
+        """
+        try:
+            import subprocess
+            import sys
+            
+            # 构建Python脚本命令
+            script_path = "mouse_keyboard_automation.py"
+            command = [
+                sys.executable,  # 使用当前Python解释器
+                script_path,
+                "--operation", "print_dialog",
+                "--filepath", file_path,
+                "--filename", file_name
+            ]
+            
+            logger.info(f"执行Python脚本命令: {' '.join(command)}")
+            
+            # 执行Python脚本
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                logger.info(f"Python脚本执行成功: {stdout.decode('utf-8')}")
+                return True
+            else:
+                logger.error(f"Python脚本执行失败: {stderr.decode('utf-8')}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"执行Python脚本时出错: {e}")
+            return False
+
+    async def handle_print_dialog(self):
+        """
+        处理打印对话框（备用方案）
+        """
+        try:
+            logger.info("开始处理打印对话框（备用方案）...")
             
             # 获取当前记录的项目号和总金额信息
             project_number = self.get_current_project_number()
