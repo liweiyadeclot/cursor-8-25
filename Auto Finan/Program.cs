@@ -3089,17 +3089,24 @@ namespace AutoFinan
                 Console.WriteLine("      开始特殊处理打印确认单按钮...");
                 Console.WriteLine("      ========================================");
 
+                // 在点击按钮之前，先提取预约号和申请总金额信息
+                Console.WriteLine("      在点击按钮之前，先提取预约号和申请总金额信息...");
+                var (appointmentNumber, totalAmount) = await ExtractAppointmentInfoFromPage();
+                
+                Console.WriteLine($"      提取到的预约号: {appointmentNumber}");
+                Console.WriteLine($"      提取到的申请总金额: {totalAmount}");
+
                 // 直接使用iframe查找方法
                 Console.WriteLine("      直接在iframe中查找打印确认单按钮...");
-                
+
                 bool buttonClicked = false;
-                
+
                 try
                 {
                     Console.WriteLine("      在iframe中查找按钮 #BtnPrint");
                     var frames = page.Frames;
                     Console.WriteLine($"      找到 {frames.Count} 个iframe");
-                    
+
                     // 查找所有iframe
                     for (int i = 0; i < frames.Count; i++)
                     {
@@ -3118,7 +3125,7 @@ namespace AutoFinan
                             continue;
                         }
                     }
-                    
+
                     if (!buttonClicked)
                     {
                         Console.WriteLine($"      所有 {frames.Count} 个iframe都查找失败，直接执行Python脚本");
@@ -3138,20 +3145,20 @@ namespace AutoFinan
                 {
                     Console.WriteLine("      ✗ 无法点击打印确认单按钮，但继续执行Python脚本");
                 }
-                
+
                 Console.WriteLine("      立即开始调用Python脚本处理后续操作...");
-                await HandlePrintConfirmButton();
+                await HandlePrintConfirmButton(appointmentNumber, totalAmount);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"      特殊处理打印确认单按钮时出错: {ex.Message}");
                 Console.WriteLine($"      详细错误信息: {ex}");
-                
+
                 // 即使出错，也尝试调用Python脚本
                 try
                 {
                     Console.WriteLine("      尝试调用Python脚本作为备用方案...");
-                    await HandlePrintConfirmButton();
+                    await HandlePrintConfirmButton("null", "0.00");
                 }
                 catch (Exception pyEx)
                 {
@@ -3163,7 +3170,7 @@ namespace AutoFinan
         /// <summary>
         /// 处理打印确认单按钮点击
         /// </summary>
-        private async Task HandlePrintConfirmButton()
+        private async Task HandlePrintConfirmButton(string appointmentNumber = "null", string totalAmount = "0.00")
         {
             try
             {
@@ -3171,8 +3178,28 @@ namespace AutoFinan
                 Console.WriteLine("      开始处理打印确认单按钮后续操作...");
                 Console.WriteLine("      ========================================");
 
-                // 直接调用Python脚本，不等待页面响应
-                Console.WriteLine("      直接调用Python脚本处理后续操作...");
+                // 使用传入的预约号和申请总金额信息
+                Console.WriteLine($"      使用传入的预约号: {appointmentNumber}");
+                Console.WriteLine($"      使用传入的申请总金额: {totalAmount}");
+                
+                // 如果传入的是默认值，尝试重新提取
+                if (appointmentNumber == "null" || totalAmount == "0.00")
+                {
+                    Console.WriteLine("      传入的值为默认值，尝试重新从网页提取...");
+                    var (newAppointmentNumber, newTotalAmount) = await ExtractAppointmentInfoFromPage();
+                    
+                    if (appointmentNumber == "null" && newAppointmentNumber != "null")
+                    {
+                        appointmentNumber = newAppointmentNumber;
+                        Console.WriteLine($"      重新提取到预约号: {appointmentNumber}");
+                    }
+                    
+                    if (totalAmount == "0.00" && newTotalAmount != "0.00")
+                    {
+                        totalAmount = newTotalAmount;
+                        Console.WriteLine($"      重新提取到申请总金额: {totalAmount}");
+                    }
+                }
 
                 // 检查Python脚本执行器是否可用
                 if (pythonExecutor == null)
@@ -3187,7 +3214,7 @@ namespace AutoFinan
                 // 直接调用Python脚本
                 string scriptPath = "test_mouse_keyboard.py";
                 string configPath = "config.json";
-                
+
                 // 尝试找到项目根目录的Python脚本
                 string[] possibleScriptPaths = {
                     scriptPath, // 当前目录
@@ -3195,7 +3222,7 @@ namespace AutoFinan
                     Path.Combine("..", "..", "..", scriptPath), // 上级目录
                     Path.Combine("..", "..", scriptPath) // 上上级目录
                 };
-                
+
                 string actualScriptPath = null;
                 foreach (string path in possibleScriptPaths)
                 {
@@ -3206,13 +3233,13 @@ namespace AutoFinan
                         break;
                     }
                 }
-                
+
                 if (actualScriptPath == null)
                 {
                     Console.WriteLine($"      ✗ 未找到Python脚本: {scriptPath}");
                     return;
                 }
-                
+
                 Console.WriteLine($"      检查脚本文件: {scriptPath}");
                 if (!File.Exists(scriptPath))
                 {
@@ -3222,7 +3249,7 @@ namespace AutoFinan
                     return;
                 }
                 Console.WriteLine($"      ✓ 脚本文件存在: {scriptPath}");
-                
+
                 Console.WriteLine($"      检查配置文件: {configPath}");
                 if (!File.Exists(configPath))
                 {
@@ -3243,7 +3270,7 @@ namespace AutoFinan
                         Path.Combine("..", "..", "..", configPath), // 上级目录
                         Path.Combine("..", "..", configPath) // 上上级目录
                     };
-                    
+
                     string actualConfigPath = null;
                     foreach (string path in possibleConfigPaths)
                     {
@@ -3254,7 +3281,7 @@ namespace AutoFinan
                             break;
                         }
                     }
-                    
+
                     if (actualConfigPath != null)
                     {
                         string configContent = File.ReadAllText(actualConfigPath);
@@ -3280,16 +3307,17 @@ namespace AutoFinan
                 }
 
                 // 执行Python脚本处理后续操作（如打印对话框等）
-                // 使用config.json中的坐标配置，简化文件名
-                string fileName = $"{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+                // 使用预约号-申请总金额-时间的格式命名文件
+                string timeStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                string fileName = $"{appointmentNumber}-{totalAmount}-{timeStamp}.pdf";
                 string arguments = $"--config config.json --folder \"{folderPath}\" --file \"{fileName}\"";
-                
+
                 Console.WriteLine($"      执行命令: python {scriptPath} {arguments}");
                 Console.WriteLine($"      工作目录: {Directory.GetCurrentDirectory()}");
-                
+
                 Console.WriteLine($"      开始执行Python脚本...");
                 Console.WriteLine($"      Python解释器: {pythonExecutor.GetType().GetField("_pythonExecutable", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(pythonExecutor)}");
-                
+
                 var result = await pythonExecutor.ExecuteScriptAsync(
                     scriptPath: actualScriptPath,
                     arguments: arguments,
@@ -3299,12 +3327,12 @@ namespace AutoFinan
                 Console.WriteLine($"      执行结果 - 成功: {result.Success}, 退出码: {result.ExitCode}");
                 Console.WriteLine($"      标准输出长度: {result.Output?.Length ?? 0}");
                 Console.WriteLine($"      错误输出长度: {result.Error?.Length ?? 0}");
-                
+
                 if (!string.IsNullOrEmpty(result.Output))
                 {
                     Console.WriteLine($"      标准输出内容: {result.Output}");
                 }
-                
+
                 if (!string.IsNullOrEmpty(result.Error))
                 {
                     Console.WriteLine($"      错误输出内容: {result.Error}");
@@ -3345,6 +3373,787 @@ namespace AutoFinan
                 Console.WriteLine($"      处理打印确认单按钮时出错: {ex.Message}");
                 Console.WriteLine($"      详细错误信息: {ex}");
             }
+        }
+
+        /// <summary>
+        /// 从网页中提取预约号和申请总金额信息
+        /// </summary>
+        /// <returns>预约号和申请总金额的元组</returns>
+        private async Task<(string appointmentNumber, string totalAmount)> ExtractAppointmentInfoFromPage()
+        {
+            string appointmentNumber = "null";
+            string totalAmount = "0.00";
+
+            try
+            {
+                Console.WriteLine("      开始从网页提取信息...");
+
+                // 优先在iframe 8中查找（根据日志显示，预约号和金额在这里）
+                Console.WriteLine("      优先在iframe 8中查找...");
+                var frames = page.Frames;
+                if (frames.Count >= 8)
+                {
+                    var frame8 = frames[7]; // 第8个iframe（索引为7）
+                    var frameUrl = frame8.Url;
+                    var frameName = frame8.Name;
+                    Console.WriteLine($"      iframe 8 URL: {frameUrl}");
+                    Console.WriteLine($"      iframe 8 Name: {frameName}");
+                    
+                    // 检查是否是目标iframe（包含printYB/ybprint.jsp）
+                    if (frameUrl.Contains("printYB/ybprint.jsp"))
+                    {
+                        Console.WriteLine("      ✓ 确认是目标iframe，开始提取信息...");
+                        var result = await ExtractFromPrintContentInFrame(frame8);
+                        appointmentNumber = result.appointmentNumber;
+                        totalAmount = result.totalAmount;
+                        
+                        if (appointmentNumber != "null" && totalAmount != "0.00")
+                        {
+                            Console.WriteLine($"      ✓ 在iframe 8中成功提取到所有信息");
+                            // 清理数据
+                            appointmentNumber = CleanAppointmentNumber(appointmentNumber);
+                            totalAmount = CleanTotalAmount(totalAmount);
+                            Console.WriteLine($"      最终提取结果 - 预约号: {appointmentNumber}, 申请总金额: {totalAmount}");
+                            return (appointmentNumber, totalAmount);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("      ✗ iframe 8不是目标iframe，尝试其他方法...");
+                    }
+                }
+
+                // 如果iframe 8没找到，尝试从主页面提取
+                if (appointmentNumber == "null" || totalAmount == "0.00")
+                {
+                    Console.WriteLine("      iframe 8未找到信息，尝试从主页面提取...");
+                    if (appointmentNumber == "null")
+                    {
+                        appointmentNumber = await ExtractAppointmentNumberFromPage();
+                    }
+                    if (totalAmount == "0.00")
+                    {
+                        totalAmount = await ExtractTotalAmountFromPage();
+                    }
+                }
+
+                // 如果主页面没有找到，尝试从其他iframe中提取
+                if (appointmentNumber == "null" || totalAmount == "0.00")
+                {
+                    Console.WriteLine("      主页面未找到信息，尝试从其他iframe中提取...");
+                    Console.WriteLine($"      找到 {frames.Count} 个iframe");
+
+                    for (int i = 0; i < frames.Count; i++)
+                    {
+                        // 跳过iframe 8，因为已经尝试过了
+                        if (i == 7) continue;
+                        
+                        try
+                        {
+                            Console.WriteLine($"      尝试从iframe {i + 1} 中提取信息...");
+                            
+                            // 先尝试在该iframe的printContent中查找
+                            var frameResult = await ExtractFromPrintContentInFrame(frames[i]);
+                            if (appointmentNumber == "null" && frameResult.appointmentNumber != "null")
+                            {
+                                appointmentNumber = frameResult.appointmentNumber;
+                            }
+                            if (totalAmount == "0.00" && frameResult.totalAmount != "0.00")
+                            {
+                                totalAmount = frameResult.totalAmount;
+                            }
+
+                            // 如果printContent中没找到，再用原来的方法
+                            if (appointmentNumber == "null")
+                            {
+                                appointmentNumber = await ExtractAppointmentNumberFromFrame(frames[i]);
+                            }
+                            if (totalAmount == "0.00")
+                            {
+                                totalAmount = await ExtractTotalAmountFromFrame(frames[i]);
+                            }
+
+                            // 如果都找到了，就跳出循环
+                            if (appointmentNumber != "null" && totalAmount != "0.00")
+                            {
+                                Console.WriteLine($"      ✓ 在iframe {i + 1} 中找到所有信息");
+                                break;
+                            }
+                        }
+                        catch (Exception frameEx)
+                        {
+                            Console.WriteLine($"      从iframe {i + 1} 提取信息时出错: {frameEx.Message}");
+                        }
+                    }
+                }
+
+                // 清理数据
+                appointmentNumber = CleanAppointmentNumber(appointmentNumber);
+                totalAmount = CleanTotalAmount(totalAmount);
+
+                Console.WriteLine($"      最终提取结果 - 预约号: {appointmentNumber}, 申请总金额: {totalAmount}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      提取网页信息时出错: {ex.Message}");
+                Console.WriteLine($"      使用默认值 - 预约号: {appointmentNumber}, 申请总金额: {totalAmount}");
+            }
+
+            return (appointmentNumber, totalAmount);
+        }
+
+        /// <summary>
+        /// 从printContent容器中提取信息（主页面）
+        /// </summary>
+        private async Task<(string appointmentNumber, string totalAmount)> ExtractFromPrintContent()
+        {
+            string appointmentNumber = "null";
+            string totalAmount = "0.00";
+
+            try
+            {
+                Console.WriteLine("      开始查找printContent容器...");
+                
+                // 等待页面稳定
+                await Task.Delay(2000);
+                
+                // 查找printContent容器
+                var printContentCount = await page.Locator("#printContent").CountAsync();
+                Console.WriteLine($"      主页面找到 {printContentCount} 个 printContent 容器");
+
+                if (printContentCount > 0)
+                {
+                    var printContent = page.Locator("#printContent").First;
+                    
+                    // 等待元素可见
+                    try
+                    {
+                        await printContent.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      等待printContent可见时超时: {ex.Message}");
+                    }
+                    
+                    // 获取容器的HTML内容
+                    var html = await printContent.InnerHTMLAsync();
+                    Console.WriteLine($"      获取到printContent HTML内容，长度: {html?.Length ?? 0}");
+
+                    if (!string.IsNullOrEmpty(html))
+                    {
+                        // 使用我们的解析函数
+                        var dictionary = ParsePrintContentHtmlToDictionary(html);
+                        Console.WriteLine($"      解析出 {dictionary.Count} 个键值对");
+
+                        // 查找预约号
+                        foreach (var key in new[] { "预约号", "预约号：", "预约号:" })
+                        {
+                            if (dictionary.ContainsKey(key))
+                            {
+                                appointmentNumber = dictionary[key];
+                                Console.WriteLine($"      ✓ 在printContent中找到预约号: {appointmentNumber}");
+                                break;
+                            }
+                        }
+
+                        // 查找申请总金额
+                        foreach (var key in new[] { "申请总金额", "申请总金额：", "申请总金额:", "总计" })
+                        {
+                            if (dictionary.ContainsKey(key))
+                            {
+                                var value = dictionary[key];
+                                // 从包含金额的文本中提取数字
+                                var match = System.Text.RegularExpressions.Regex.Match(value, @"([\d,]+\.?\d*)");
+                                if (match.Success)
+                                {
+                                    totalAmount = match.Groups[1].Value;
+                                    Console.WriteLine($"      ✓ 在printContent中找到申请总金额: {totalAmount}");
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 如果还没找到，直接在HTML中用正则查找
+                        if (appointmentNumber == "null")
+                        {
+                            var appointmentMatch = System.Text.RegularExpressions.Regex.Match(html, @"预约号[：:]\s*</td>\s*<td[^>]*>([^<]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (appointmentMatch.Success)
+                            {
+                                appointmentNumber = appointmentMatch.Groups[1].Value.Trim();
+                                Console.WriteLine($"      ✓ 通过正则在printContent中找到预约号: {appointmentNumber}");
+                            }
+                        }
+
+                        if (totalAmount == "0.00")
+                        {
+                            var amountMatch = System.Text.RegularExpressions.Regex.Match(html, @"申请总金额[：:]\s*([0-9,]+\.?\d*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (amountMatch.Success)
+                            {
+                                totalAmount = amountMatch.Groups[1].Value.Trim();
+                                Console.WriteLine($"      ✓ 通过正则在printContent中找到申请总金额: {totalAmount}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("      ✗ printContent容器内容为空");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("      ✗ 主页面未找到printContent容器");
+                    
+                    // 尝试查找其他可能的容器
+                    var possibleContainers = new[] { ".printdiv", "[id*='print']", "[class*='print']" };
+                    foreach (var selector in possibleContainers)
+                    {
+                        var count = await page.Locator(selector).CountAsync();
+                        if (count > 0)
+                        {
+                            Console.WriteLine($"      找到可能的容器: {selector} (数量: {count})");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      从printContent提取信息时出错: {ex.Message}");
+                Console.WriteLine($"      详细错误: {ex}");
+            }
+
+            return (appointmentNumber, totalAmount);
+        }
+
+        /// <summary>
+        /// 从printContent容器中提取信息（iframe）
+        /// </summary>
+        private async Task<(string appointmentNumber, string totalAmount)> ExtractFromPrintContentInFrame(IFrame frame)
+        {
+            string appointmentNumber = "null";
+            string totalAmount = "0.00";
+
+            try
+            {
+                Console.WriteLine("      在iframe中查找printContent容器...");
+                
+                // 获取iframe信息
+                var frameUrl = frame.Url;
+                var frameName = frame.Name;
+                Console.WriteLine($"      iframe URL: {frameUrl}");
+                Console.WriteLine($"      iframe Name: {frameName}");
+                
+                // 查找printContent容器
+                var printContentCount = await frame.Locator("#printContent").CountAsync();
+                Console.WriteLine($"      在iframe中找到 {printContentCount} 个 printContent 容器");
+                
+                if (printContentCount > 0)
+                {
+                    var printContent = frame.Locator("#printContent").First;
+                    
+                    // 等待元素可见
+                    try
+                    {
+                        await printContent.WaitForAsync(new LocatorWaitForOptions { Timeout = 3000 });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      等待iframe中printContent可见时超时: {ex.Message}");
+                    }
+                    
+                    // 获取容器的HTML内容
+                    var html = await printContent.InnerHTMLAsync();
+                    Console.WriteLine($"      在iframe中获取到printContent HTML内容，长度: {html?.Length ?? 0}");
+
+                    if (!string.IsNullOrEmpty(html))
+                    {
+                        // 使用我们的解析函数
+                        var dictionary = ParsePrintContentHtmlToDictionary(html);
+                        Console.WriteLine($"      在iframe中解析出 {dictionary.Count} 个键值对");
+
+                        // 查找预约号
+                        foreach (var key in new[] { "预约号", "预约号：", "预约号:" })
+                        {
+                            if (dictionary.ContainsKey(key))
+                            {
+                                appointmentNumber = dictionary[key];
+                                Console.WriteLine($"      ✓ 在iframe的printContent中找到预约号: {appointmentNumber}");
+                                break;
+                            }
+                        }
+
+                        // 查找申请总金额
+                        foreach (var key in new[] { "申请总金额", "申请总金额：", "申请总金额:", "总计" })
+                        {
+                            if (dictionary.ContainsKey(key))
+                            {
+                                var value = dictionary[key];
+                                // 从包含金额的文本中提取数字
+                                var match = System.Text.RegularExpressions.Regex.Match(value, @"([\d,]+\.?\d*)");
+                                if (match.Success)
+                                {
+                                    totalAmount = match.Groups[1].Value;
+                                    Console.WriteLine($"      ✓ 在iframe的printContent中找到申请总金额: {totalAmount}");
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 如果还没找到，直接在HTML中用正则查找
+                        if (appointmentNumber == "null")
+                        {
+                            var appointmentMatch = System.Text.RegularExpressions.Regex.Match(html, @"预约号[：:]\s*</td>\s*<td[^>]*>([^<]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (appointmentMatch.Success)
+                            {
+                                appointmentNumber = appointmentMatch.Groups[1].Value.Trim();
+                                Console.WriteLine($"      ✓ 通过正则在iframe的printContent中找到预约号: {appointmentNumber}");
+                            }
+                        }
+
+                        if (totalAmount == "0.00")
+                        {
+                            var amountMatch = System.Text.RegularExpressions.Regex.Match(html, @"申请总金额[：:]\s*([0-9,]+\.?\d*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (amountMatch.Success)
+                            {
+                                totalAmount = amountMatch.Groups[1].Value.Trim();
+                                Console.WriteLine($"      ✓ 通过正则在iframe的printContent中找到申请总金额: {totalAmount}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("      ✗ iframe中printContent容器内容为空");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("      ✗ iframe中未找到printContent容器");
+                    
+                    // 尝试查找其他可能的容器
+                    var possibleContainers = new[] { ".printdiv", "[id*='print']", "[class*='print']", "table", "tbody" };
+                    foreach (var selector in possibleContainers)
+                    {
+                        var count = await frame.Locator(selector).CountAsync();
+                        if (count > 0)
+                        {
+                            Console.WriteLine($"      在iframe中找到可能的容器: {selector} (数量: {count})");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      从iframe的printContent提取信息时出错: {ex.Message}");
+                Console.WriteLine($"      详细错误: {ex}");
+            }
+
+            return (appointmentNumber, totalAmount);
+        }
+
+        /// <summary>
+        /// 从主页面提取预约号
+        /// </summary>
+        private async Task<string> ExtractAppointmentNumberFromPage()
+        {
+            try
+            {
+                // 根据实际HTML结构调整选择器
+                var selectors = new[]
+                {
+                    "td:has-text('预约号：') + td",
+                    "xpath=//td[contains(normalize-space(.), '预约号')]/following-sibling::td[1]",
+                    "tr.text_fd td:nth-child(2)",
+                    "tbody tr.text_fd td:nth-child(2)",
+                    "tr[class*='text_fd'] td:nth-child(2)",
+                    "td[width='13%']"
+                };
+
+                foreach (var selector in selectors)
+                {
+                    try
+                    {
+                        await page.Locator(selector).First.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+                        var element = page.Locator(selector).First;
+                        var text = await element.TextContentAsync();
+                        text = text?.Replace('\u00A0', ' ').Trim();
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            Console.WriteLine($"      ✓ 在主页面找到预约号: {text.Trim()}");
+                            return text.Trim();
+                        }
+                    }
+                    catch
+                    {
+                        // 继续尝试下一个选择器
+                    }
+                }
+
+                Console.WriteLine("      ✗ 在主页面未找到预约号");
+                return "null";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      从主页面提取预约号时出错: {ex.Message}");
+                return "null";
+            }
+        }
+
+        /// <summary>
+        /// 从主页面提取申请总金额
+        /// </summary>
+        private async Task<string> ExtractTotalAmountFromPage()
+        {
+            try
+            {
+                // 根据实际HTML结构调整选择器
+                var selectors = new[]
+                {
+                    "xpath=//td[contains(normalize-space(.), '申请总金额')]",
+                    "td.title_fd:has-text('申请总金额')",
+                    "td[class*='title_fd']:has-text('申请总金额')",
+                    "td:has-text('申请总金额')",
+                    "td[width='60%']:has-text('申请总金额')",
+                };
+
+                foreach (var selector in selectors)
+                {
+                    try
+                    {
+                        await page.Locator(selector).First.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+                        var element = page.Locator(selector).First;
+                        var text = await element.TextContentAsync();
+                        text = text?.Replace('\u00A0', ' ').Trim();
+                        if (!string.IsNullOrEmpty(text) && text.Contains("申请总金额"))
+                        {
+                            // 提取金额部分 - 匹配"申请总金额: 1500.00"格式
+                            var amountMatch = System.Text.RegularExpressions.Regex.Match(text, @"申请总金额\s*[:：]\s*([\d,]+\.?\d*)");
+                            if (amountMatch.Success)
+                            {
+                                var amount = amountMatch.Groups[1].Value;
+                                Console.WriteLine($"      ✓ 在主页面找到申请总金额: {amount}");
+                                return amount;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 继续尝试下一个选择器
+                    }
+                }
+
+                Console.WriteLine("      ✗ 在主页面未找到申请总金额");
+                return "0.00";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      从主页面提取申请总金额时出错: {ex.Message}");
+                return "0.00";
+            }
+        }
+
+        /// <summary>
+        /// 从iframe中提取预约号
+        /// </summary>
+        private async Task<string> ExtractAppointmentNumberFromFrame(IFrame frame)
+        {
+            try
+            {
+                var selectors = new[]
+                {
+                    "td:has-text('预约号：') + td",
+                    "xpath=//td[contains(normalize-space(.), '预约号')]/following-sibling::td[1]",
+                    "tbody tr.text_fd td:nth-child(2)",
+                    "tr.text_fd td:nth-child(2)",
+                    "[class*='text_fd'] td:nth-child(2)"
+                };
+
+                foreach (var selector in selectors)
+                {
+                    try
+                    {
+                        // 先等待元素出现
+                        await frame.Locator(selector).First.WaitForAsync(new LocatorWaitForOptions { Timeout = 1000 });
+
+                        // 然后获取元素
+                        var element = frame.Locator(selector).First;
+                        var text = await element.TextContentAsync();
+                        text = text?.Replace('\u00A0', ' ').Trim();
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            Console.WriteLine($"      ✓ 在iframe中找到预约号: {text.Trim()}");
+                            return text.Trim();
+                        }
+                    }
+                    catch
+                    {
+                        // 继续尝试下一个选择器
+                    }
+                }
+
+                return "null";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      从iframe提取预约号时出错: {ex.Message}");
+                return "null";
+            }
+        }
+        /// <summary>
+        /// 从iframe中提取申请总金额
+        /// </summary>
+        private async Task<string> ExtractTotalAmountFromFrame(IFrame frame)
+        {
+            try
+            {
+                var selectors = new[]
+                {
+                    "xpath=//td[contains(normalize-space(.), '申请总金额')]",
+                    "td:has-text('申请总金额')",
+                    "[class*='title_fd']:has-text('申请总金额')"
+                };
+
+                foreach (var selector in selectors)
+                {
+                    try
+                    {
+                        await frame.Locator(selector).First.WaitForAsync(new LocatorWaitForOptions { Timeout = 3000 });
+                        var element = frame.Locator(selector).First;
+                        var text = await element.TextContentAsync();
+                        text = text?.Replace('\u00A0', ' ').Trim();
+                        if (!string.IsNullOrEmpty(text) && text.Contains("申请总金额"))
+                        {
+                            var amountMatch = System.Text.RegularExpressions.Regex.Match(text, @"申请总金额\s*[:：]\s*([\d,]+\.?\d*)");
+                            if (amountMatch.Success)
+                            {
+                                var amount = amountMatch.Groups[1].Value;
+                                Console.WriteLine($"      ✓ 在iframe中找到申请总金额: {amount}");
+                                return amount;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 继续尝试下一个选择器
+                    }
+                }
+
+                return "0.00";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      从iframe提取申请总金额时出错: {ex.Message}");
+                return "0.00";
+            }
+        }
+
+        /// <summary>
+        /// 清理预约号数据
+        /// </summary>
+        private string CleanAppointmentNumber(string appointmentNumber)
+        {
+            if (string.IsNullOrEmpty(appointmentNumber) || appointmentNumber == "null")
+                return "null";
+
+            // 移除空格、换行符等
+            return appointmentNumber.Trim().Replace("\n", "").Replace("\r", "");
+        }
+
+        /// <summary>
+        /// 清理申请总金额数据
+        /// </summary>
+        private string CleanTotalAmount(string totalAmount)
+        {
+            if (string.IsNullOrEmpty(totalAmount) || totalAmount == "0.00")
+                return "0.00";
+
+            // 移除空格、换行符、逗号等
+            var cleaned = totalAmount.Trim().Replace("\n", "").Replace("\r", "").Replace(",", "");
+            
+            // 确保是数字格式
+            if (decimal.TryParse(cleaned, out decimal amount))
+            {
+                return amount.ToString("F2");
+            }
+
+            return "0.00";
+        }
+
+        // 将 printContent 的 HTML 字符串解析为键值对字典（通用）
+        private Dictionary<string, string> ParsePrintContentHtmlToDictionary(string html)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(html)) return result;
+
+            try
+            {
+                // 规范化
+                string normalized = html.Replace("\r", "").Replace("\n", "");
+
+                // 提取所有行
+                var rowMatches = System.Text.RegularExpressions.Regex.Matches(
+                    normalized,
+                    "<tr[\\s\\S]*?>([\\s\\S]*?)</tr>",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                // 逐行解析
+                var rows = new List<List<string>>();
+                foreach (System.Text.RegularExpressions.Match row in rowMatches)
+                {
+                    var cells = new List<string>();
+                    var cellMatches = System.Text.RegularExpressions.Regex.Matches(
+                        row.Groups[1].Value,
+                        "<td[\\s\\S]*?>([\\s\\S]*?)</td>",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (System.Text.RegularExpressions.Match cell in cellMatches)
+                    {
+                        string cellHtml = cell.Groups[1].Value;
+                        string text = CleanCellText(cellHtml);
+                        if (text.Length > 0)
+                        {
+                            cells.Add(text);
+                        }
+                        else
+                        {
+                            cells.Add("");
+                        }
+                    }
+
+                    if (cells.Count > 0)
+                    {
+                        rows.Add(cells);
+                    }
+                }
+
+                // 解析规则：
+                // 1) 单元格内的“键：值”对（可能包含多个）
+                // 2) 邻接单元格“键” -> “值”
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    var cells = rows[r];
+
+                    // 规则1：同一单元格内的多对键值
+                    foreach (var cell in cells)
+                    {
+                        foreach (var kv in ExtractInlinePairs(cell))
+                        {
+                            result[kv.Key] = kv.Value;
+                        }
+                    }
+
+                    // 规则2：相邻单元格配对
+                    for (int i = 0; i < cells.Count - 1; i++)
+                    {
+                        string left = cells[i];
+                        string right = FindNextNonEmpty(cells, i + 1);
+                        if (string.IsNullOrEmpty(left) || string.IsNullOrEmpty(right)) continue;
+
+                        // 左侧以冒号结尾或包含冒号
+                        if (left.EndsWith("：") || left.EndsWith(":") || left.Contains("：") || left.Contains(":"))
+                        {
+                            string key = TrimKey(left);
+                            string value = right.Trim();
+                            if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
+                            {
+                                result[key] = value;
+                            }
+                            continue;
+                        }
+
+                        // 启发式：左侧是较短的标签，右侧是值（且右侧不像标签）
+                        if (IsLikelyLabel(left) && !LooksLikeLabel(right))
+                        {
+                            string key = TrimKey(left);
+                            string value = right.Trim();
+                            if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
+                            {
+                                result[key] = value;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      解析HTML为字典时出错: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        private static string CleanCellText(string cellHtml)
+        {
+            // 移除所有标签
+            string text = System.Text.RegularExpressions.Regex.Replace(cellHtml, "<[^>]+>", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // HTML 实体解码
+            text = System.Net.WebUtility.HtmlDecode(text);
+            // 替换不间断空格
+            text = text.Replace('\u00A0', ' ');
+            // 压缩空白
+            text = System.Text.RegularExpressions.Regex.Replace(text, "\\s+", " ").Trim();
+            return text;
+        }
+
+        private static IEnumerable<KeyValuePair<string, string>> ExtractInlinePairs(string text)
+        {
+            var list = new List<KeyValuePair<string, string>>();
+            if (string.IsNullOrEmpty(text)) return list;
+
+            // 匹配形如 “键：值” 或 “键: 值”，同一文本中可能有多对
+            var matches = System.Text.RegularExpressions.Regex.Matches(
+                text,
+                "([\\u4e00-\\u9fa5A-Za-z0-9（）()\\s]+?)\\s*[：:]\\s*([^：:]+?)(?=(?:[\\s]+[\\u4e00-\\u9fa5A-Za-z0-9（）()]+\\s*[：:])|$)");
+
+            foreach (System.Text.RegularExpressions.Match m in matches)
+            {
+                string key = TrimKey(m.Groups[1].Value);
+                string value = m.Groups[2].Value.Trim();
+                if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
+                {
+                    list.Add(new KeyValuePair<string, string>(key, value));
+                }
+            }
+            return list;
+        }
+
+        private static string FindNextNonEmpty(List<string> cells, int start)
+        {
+            for (int i = start; i < cells.Count; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(cells[i])) return cells[i];
+            }
+            return string.Empty;
+        }
+
+        private static string TrimKey(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return key;
+            key = key.Trim();
+            key = key.TrimEnd('：', ':');
+            key = key.Replace(" ", ""); // 去掉内部空格以稳定匹配
+            return key;
+        }
+
+        private static bool IsLikelyLabel(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            if (text.Contains("：") || text.Contains(":")) return true;
+            // 短文本、主要是中文或少量字母，认为是标签
+            var t = text.Trim();
+            if (t.Length <= 8)
+            {
+                return System.Text.RegularExpressions.Regex.IsMatch(t, "^[\\u4e00-\\u9fa5A-Za-z（）()]+$");
+            }
+            return false;
+        }
+
+        private static bool LooksLikeLabel(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            if (text.Contains("：") || text.Contains(":")) return true;
+            // 如果是明显的金额/日期/数字，则不是标签
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, "^[0-9，,\\.]+$")) return false;
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, "^\\d{4}-\\d{2}-\\d{2}")) return false;
+            return IsLikelyLabel(text);
         }
     }
 }
