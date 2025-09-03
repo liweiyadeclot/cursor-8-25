@@ -1,0 +1,16 @@
+# 鼠标键盘自动化功能依赖包
+
+# 核心依赖
+pyautogui>=0.9.54
+
+# 可选依赖（用于更好的功能）
+pillow>=9.0.0          # 图像处理（pyautogui的图像识别功能需要）
+opencv-python>=4.5.0   # 计算机视觉（用于图像识别）
+numpy>=1.21.0          # 数值计算（opencv的依赖）
+
+# 开发依赖
+pytest>=7.0.0          # 测试框架
+pytest-cov>=4.0.0      # 测试覆盖率
+
+# 安装命令：
+# pip install -r requirements_mouse_keyboard.txt

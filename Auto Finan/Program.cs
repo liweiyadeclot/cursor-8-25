@@ -68,6 +68,10 @@ namespace AutoFinan
         private bool isInSecondSubsequence = false; // 标记是否在第二种子序列中
         private int subsequenceRowIndex = 0; // 第二种子序列中的行序号（从0开始）
         private PythonScriptExecutor pythonExecutor; // Python脚本执行器
+        private ExcelWorksheet currentWorksheet; // 当前工作表引用
+        private List<string> currentHeaders; // 当前表头
+        private string lastSavedPdfPath; // 最后保存的PDF路径
+        private ExcelPackage currentPackage; // 当前Excel包引用
 
         public async Task RunAsync()
         {
@@ -90,6 +94,10 @@ namespace AutoFinan
             }
 
             Console.WriteLine("开始读取Excel文件...");
+
+            // 提醒用户关闭Excel文件
+            Console.WriteLine("⚠️  重要提醒：请确保Excel文件没有被其他程序（如Excel、WPS）打开");
+            Console.WriteLine("   如果文件被占用，程序将无法写入数据到Excel中");
 
             // 获取当前执行目录
             string currentDirectory = Directory.GetCurrentDirectory();
@@ -155,6 +163,11 @@ namespace AutoFinan
                 }
 
                 Console.WriteLine($"成功加载工作表: {config.SheetName}");
+
+                // 设置当前工作表和表头引用
+                currentWorksheet = worksheet;
+                currentHeaders = GetHeaders(worksheet);
+                currentPackage = package; // 保存Excel包引用
 
                 // 获取数据范围
                 int rowCount = worksheet.Dimension?.Rows ?? 0;
@@ -275,7 +288,7 @@ namespace AutoFinan
                         }
 
                         // 如果不是子序列开始列，则正常处理单元格
-                        if (!subsequenceStartColumns.Contains(col) && !string.IsNullOrEmpty(cellValue))
+                        if (!subsequenceStartColumns.Contains(col) && (!string.IsNullOrEmpty(cellValue) || headers[col - 1].StartsWith("?")))
                         {
                             await ProcessCell(columnName, row, headerName, cellValue);
                         }
@@ -285,6 +298,9 @@ namespace AutoFinan
                 }
 
                 Console.WriteLine("\n=== 所有数据处理完成 ===");
+                
+                // 保存Excel文件
+                SaveExcelFile();
             }
 
             // 等待用户手动关闭浏览器
@@ -378,7 +394,7 @@ namespace AutoFinan
 
                     Console.WriteLine($"    子序列处理：读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
 
-                    if (!string.IsNullOrEmpty(cellValue))
+                    if (!string.IsNullOrEmpty(cellValue) || headerName.StartsWith("?"))
                     {
                         await ProcessCell(columnName, row, headerName, cellValue);
                     }
@@ -436,7 +452,7 @@ namespace AutoFinan
 
                     Console.WriteLine($"    第二种子序列处理：读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
 
-                    if (!string.IsNullOrEmpty(cellValue))
+                    if (!string.IsNullOrEmpty(cellValue) || headerName.StartsWith("?"))
                     {
                         await ProcessCell(columnName, row, headerName, cellValue);
                     }
@@ -478,6 +494,254 @@ namespace AutoFinan
             return totalRows + 1; // 如果没有找到子序列结束标记，返回下一行
         }
 
+        /// <summary>
+        /// 获取表头
+        /// </summary>
+        private List<string> GetHeaders(ExcelWorksheet worksheet)
+        {
+            var headers = new List<string>();
+            int colCount = worksheet.Dimension?.Columns ?? 0;
+            
+            for (int col = 1; col <= colCount; col++)
+            {
+                var headerValue = worksheet.Cells[1, col].Value?.ToString() ?? "";
+                headers.Add(headerValue);
+            }
+            
+            return headers;
+        }
+
+        /// <summary>
+        /// 处理以?开头的列标题（程序自动填写）
+        /// </summary>
+        private async Task HandleQuestionMarkColumn(string columnName, int row, string headerName, string cellValue)
+        {
+            try
+            {
+                Console.WriteLine($"      检测到?列标题: {headerName}");
+                Console.WriteLine($"      参数: columnName={columnName}, row={row}, headerName={headerName}, cellValue={cellValue}");
+                
+                // 移除?前缀，获取实际的列名
+                string actualColumnName = headerName.Substring(1);
+                Console.WriteLine($"      实际列名: {actualColumnName}");
+                
+                string valueToWrite = "";
+                
+                // 根据不同的列名处理不同的逻辑
+                switch (actualColumnName.ToLower())
+                {
+                    case "pdf路径":
+                        valueToWrite = lastSavedPdfPath ?? "未生成PDF文件";
+                        Console.WriteLine($"      填写PDF路径: {valueToWrite}");
+                        break;
+                        
+                    case "预约号":
+                        var (appointmentNumber, _) = await ExtractAppointmentInfoFromPage();
+                        valueToWrite = appointmentNumber ?? "未获取到预约号";
+                        Console.WriteLine($"      填写预约号: {valueToWrite}");
+                        break;
+                        
+                    case "涉及总金额":
+                        var (_, totalAmount) = await ExtractAppointmentInfoFromPage();
+                        valueToWrite = totalAmount ?? "未获取到金额";
+                        Console.WriteLine($"      填写申请总金额: {valueToWrite}");
+                        break;
+                        
+                    case "当前时间":
+                        valueToWrite = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                        Console.WriteLine($"      填写当前时间: {valueToWrite}");
+                        break;
+                        
+                    case "文件名":
+                        if (!string.IsNullOrEmpty(lastSavedPdfPath))
+                        {
+                            valueToWrite = Path.GetFileName(lastSavedPdfPath);
+                        }
+                        else
+                        {
+                            valueToWrite = "未生成文件";
+                        }
+                        Console.WriteLine($"      填写文件名: {valueToWrite}");
+                        break;
+                        
+                    default:
+                        Console.WriteLine($"      未知的?列名: {actualColumnName}，跳过处理");
+                        return;
+                }
+                
+                // 写入Excel单元格
+                Console.WriteLine($"      准备写入Excel: 行={row}, 标题={headerName}, 值={valueToWrite}");
+                WriteToExcelCell(row, headerName, valueToWrite);
+                Console.WriteLine($"      ✓ 已填写{actualColumnName}: {valueToWrite}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      处理?列时出错: {ex.Message}");
+                Console.WriteLine($"      详细错误: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// 保存Excel文件
+        /// </summary>
+        private void SaveExcelFile()
+        {
+            try
+            {
+                if (currentPackage != null)
+                {
+                    Console.WriteLine("      正在保存Excel文件...");
+                    
+                    // 获取文件路径信息
+                    var fileInfo = currentPackage.File;
+                    if (fileInfo != null)
+                    {
+                        Console.WriteLine($"      文件路径: {fileInfo.FullName}");
+                        Console.WriteLine($"      文件是否存在: {fileInfo.Exists}");
+                        Console.WriteLine($"      文件大小: {fileInfo.Length} 字节");
+                        
+                        // 检查文件权限
+                        try
+                        {
+                            using (var stream = fileInfo.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                            {
+                                // 如果能打开文件，说明有读写权限
+                                Console.WriteLine("      ✓ 文件权限检查通过");
+                            }
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            Console.WriteLine("      ✗ 文件权限不足，无法写入");
+                            return;
+                        }
+                        catch (IOException)
+                        {
+                            Console.WriteLine("      ✗ 文件被其他程序占用");
+                            return;
+                        }
+                    }
+                    
+                    // 保存文件
+                    try
+                    {
+                        currentPackage.Save();
+                        Console.WriteLine("      ✓ Excel文件保存成功");
+                    }
+                    catch (Exception saveEx)
+                    {
+                        Console.WriteLine($"      直接保存失败，尝试备用保存方法: {saveEx.Message}");
+                        
+                        // 备用保存方法：尝试保存到临时文件
+                        try
+                        {
+                            string tempPath = Path.Combine(Path.GetTempPath(), $"temp_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+                            currentPackage.SaveAs(new FileInfo(tempPath));
+                            Console.WriteLine($"      ✓ 备用保存成功，文件保存到: {tempPath}");
+                            Console.WriteLine($"      请手动将文件从 {tempPath} 复制到原位置");
+                        }
+                        catch (Exception backupEx)
+                        {
+                            Console.WriteLine($"      ✗ 备用保存也失败: {backupEx.Message}");
+                            throw; // 重新抛出原始异常
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("      ✗ currentPackage为null，无法保存文件");
+                }
+            }
+            catch (System.IO.IOException ex)
+            {
+                Console.WriteLine($"      ✗ 保存Excel文件失败: 文件可能被其他程序占用");
+                Console.WriteLine($"      请关闭Excel、WPS等程序，然后重新运行");
+                Console.WriteLine($"      详细错误: {ex.Message}");
+                Console.WriteLine($"      错误类型: {ex.GetType().Name}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Console.WriteLine($"      ✗ 保存Excel文件失败: 权限不足");
+                Console.WriteLine($"      请以管理员身份运行程序，或检查文件权限");
+                Console.WriteLine($"      详细错误: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      ✗ 保存Excel文件时发生未知错误: {ex.Message}");
+                Console.WriteLine($"      错误类型: {ex.GetType().Name}");
+                Console.WriteLine($"      详细错误: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// 写入Excel单元格
+        /// </summary>
+        private void WriteToExcelCell(int row, string columnName, string value)
+        {
+            try
+            {
+                Console.WriteLine($"      开始写入Excel: 行={row}, 列名={columnName}, 值={value}");
+                
+                if (currentWorksheet == null)
+                {
+                    Console.WriteLine($"      警告: currentWorksheet为null，无法写入Excel");
+                    return;
+                }
+                
+                // 将列名转换为列索引
+                int columnIndex = GetColumnIndex(columnName);
+                Console.WriteLine($"      列名'{columnName}'对应的索引: {columnIndex}");
+                
+                if (columnIndex <= 0)
+                {
+                    Console.WriteLine($"      警告: 无法找到列 {columnName}");
+                    Console.WriteLine($"      当前表头: {string.Join(", ", currentHeaders ?? new List<string>())}");
+                    return;
+                }
+                
+                // 尝试写入Excel单元格
+                try
+                {
+                    currentWorksheet.Cells[row, columnIndex].Value = value;
+                    Console.WriteLine($"      成功写入Excel: {columnName}{row} = {value}");
+                    
+                    // 立即保存Excel文件
+                    SaveExcelFile();
+                }
+                catch (System.IO.IOException ex)
+                {
+                    Console.WriteLine($"      ✗ 写入Excel失败: 文件可能被其他程序占用");
+                    Console.WriteLine($"      请关闭Excel、WPS等程序，然后重新运行");
+                    Console.WriteLine($"      详细错误: {ex.Message}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      ✗ 写入Excel时发生未知错误: {ex.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      写入Excel单元格时出错: {ex.Message}");
+                Console.WriteLine($"      详细错误: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// 获取列索引
+        /// </summary>
+        private int GetColumnIndex(string columnName)
+        {
+            if (currentHeaders == null) return -1;
+            
+            for (int i = 0; i < currentHeaders.Count; i++)
+            {
+                if (currentHeaders[i] == columnName)
+                {
+                    return i + 1; // 返回1-based索引
+                }
+            }
+            return -1;
+        }
+
         private async Task ProcessCell(string columnName, int row, string headerName, string cellValue)
         {
             // 这里实现具体的单元格处理逻辑
@@ -485,63 +749,71 @@ namespace AutoFinan
 
             Console.WriteLine($"    执行操作：{columnName}{row} - {headerName} = '{cellValue}'");
 
-            // 1. 等待操作（列标题为"等待"）
-            if (headerName == "等待")
+            // 1. 处理以?开头的列标题（程序自动填写）
+            if (headerName.StartsWith("?"))
+            {
+                Console.WriteLine($"      检测到?列标题，开始自动填写");
+                Console.WriteLine($"      列名: {columnName}, 标题: {headerName}, 值: {cellValue}");
+                await HandleQuestionMarkColumn(columnName, row, headerName, cellValue);
+                return; // ?列不需要对网页进行操作
+            }
+            // 2. 等待操作（列标题为"等待"）
+            else if (headerName == "等待")
             {
                 Console.WriteLine($"      检测到等待操作: {cellValue}");
                 await WaitOperation(cellValue);
             }
-            // 2. 回车键操作（列标题为"回车"，值为"$点击"）
+            // 3. 回车键操作（列标题为"回车"，值为"$点击"）
             else if (headerName == "回车" && cellValue == "$点击")
             {
                 Console.WriteLine($"      检测到回车键操作");
                 await PressEnterKey();
             }
-            // 2. 按钮点击操作（以$开头）
+            // 4. 按钮点击操作（以$开头）
             else if (cellValue == "$点击" || cellValue == "$预约")
             {
                 Console.WriteLine($"      检测到按钮点击操作: {headerName}");
                 await ClickButton(headerName);
             }
-            // 3. Radio按钮点击操作（以$$开头）
+            // 5. Radio按钮点击操作（以$$开头）
             else if (cellValue.StartsWith("$$"))
             {
                 string radioValue = cellValue.Substring(2); // 去掉$$前缀
                 Console.WriteLine($"      检测到Radio按钮操作: {radioValue}");
                 await ClickRadioButton(radioValue);
             }
-            // 4. 银行卡选择操作（以*开头）
+            // 6. 银行卡选择操作（以*开头）
             else if (cellValue.StartsWith("*"))
             {
                 Console.WriteLine($"      检测到银行卡选择操作: {cellValue}");
                 await SelectCardByNumber(cellValue);
             }
-            // 5. 科目输入框操作（以#开头）
+            // 7. 科目输入框操作（以#开头）
             else if (cellValue.StartsWith("#"))
             {
                 Console.WriteLine($"      检测到科目输入框操作: {cellValue}");
                 await FillSubjectInput(headerName, cellValue);
             }
-            // 6. 下拉框选择操作
+            // 8. 下拉框选择操作
             else if (IsDropdownField(headerName))
             {
                 Console.WriteLine($"      检测到下拉框选择操作: {headerName} = {cellValue}");
                 await SelectDropdown(headerName, cellValue);
             }
-            // 7. 日期选择操作（日期字段或格式：yyyy-mm-dd）
+            // 9. 日期选择操作（日期字段或格式：yyyy-mm-dd）
             else if (IsDateField(headerName) || IsDate(cellValue))
             {
                 Console.WriteLine($"      检测到日期选择操作: {cellValue}");
                 await SelectDate(headerName, cellValue);
             }
-            // 8. 金额输入框操作（需要与科目配对）
+            // 10. 金额输入框操作（需要与科目配对）
             else if (headerName == "金额" && !string.IsNullOrEmpty(currentSubjectId))
             {
                 Console.WriteLine($"      检测到金额输入框操作: {cellValue}");
                 await FillAmountInput(currentSubjectId, cellValue);
                 currentSubjectId = null; // 清空当前科目ID
             }
-            // 9. 一般输入框操作
+            // 11. 一般输入框操作
             else
             {
                 Console.WriteLine($"      检测到输入框操作: {cellValue}");
@@ -2078,7 +2350,7 @@ namespace AutoFinan
                 }
 
                 // 如果不是子序列开始列，则正常处理单元格
-                if (!subsequenceStartColumns.Contains(col) && !string.IsNullOrEmpty(cellValue))
+                if (!subsequenceStartColumns.Contains(col) && (!string.IsNullOrEmpty(cellValue) || headerName.StartsWith("?")))
                 {
                     await ProcessCell(columnName, row, headerName, cellValue);
                 }
@@ -3092,7 +3364,7 @@ namespace AutoFinan
                 // 在点击按钮之前，先提取预约号和申请总金额信息
                 Console.WriteLine("      在点击按钮之前，先提取预约号和申请总金额信息...");
                 var (appointmentNumber, totalAmount) = await ExtractAppointmentInfoFromPage();
-                
+
                 Console.WriteLine($"      提取到的预约号: {appointmentNumber}");
                 Console.WriteLine($"      提取到的申请总金额: {totalAmount}");
 
@@ -3181,19 +3453,19 @@ namespace AutoFinan
                 // 使用传入的预约号和申请总金额信息
                 Console.WriteLine($"      使用传入的预约号: {appointmentNumber}");
                 Console.WriteLine($"      使用传入的申请总金额: {totalAmount}");
-                
+
                 // 如果传入的是默认值，尝试重新提取
                 if (appointmentNumber == "null" || totalAmount == "0.00")
                 {
                     Console.WriteLine("      传入的值为默认值，尝试重新从网页提取...");
                     var (newAppointmentNumber, newTotalAmount) = await ExtractAppointmentInfoFromPage();
-                    
+
                     if (appointmentNumber == "null" && newAppointmentNumber != "null")
                     {
                         appointmentNumber = newAppointmentNumber;
                         Console.WriteLine($"      重新提取到预约号: {appointmentNumber}");
                     }
-                    
+
                     if (totalAmount == "0.00" && newTotalAmount != "0.00")
                     {
                         totalAmount = newTotalAmount;
@@ -3341,6 +3613,12 @@ namespace AutoFinan
                 if (result.Success)
                 {
                     Console.WriteLine("      ✓ 打印确认单后续处理成功！");
+                    
+                    // 更新最后保存的PDF路径
+                    string fullPdfPath = Path.Combine(folderPath, fileName);
+                    lastSavedPdfPath = fullPdfPath;
+                    Console.WriteLine($"      ✓ 已更新最后保存的PDF路径: {fullPdfPath}");
+                    
                     if (!string.IsNullOrEmpty(result.Output))
                     {
                         Console.WriteLine($"      输出: {result.Output}");
@@ -3398,7 +3676,7 @@ namespace AutoFinan
                     var frameName = frame8.Name;
                     Console.WriteLine($"      iframe 8 URL: {frameUrl}");
                     Console.WriteLine($"      iframe 8 Name: {frameName}");
-                    
+
                     // 检查是否是目标iframe（包含printYB/ybprint.jsp）
                     if (frameUrl.Contains("printYB/ybprint.jsp"))
                     {
@@ -3406,7 +3684,7 @@ namespace AutoFinan
                         var result = await ExtractFromPrintContentInFrame(frame8);
                         appointmentNumber = result.appointmentNumber;
                         totalAmount = result.totalAmount;
-                        
+
                         if (appointmentNumber != "null" && totalAmount != "0.00")
                         {
                             Console.WriteLine($"      ✓ 在iframe 8中成功提取到所有信息");
@@ -3447,11 +3725,11 @@ namespace AutoFinan
                     {
                         // 跳过iframe 8，因为已经尝试过了
                         if (i == 7) continue;
-                        
+
                         try
                         {
                             Console.WriteLine($"      尝试从iframe {i + 1} 中提取信息...");
-                            
+
                             // 先尝试在该iframe的printContent中查找
                             var frameResult = await ExtractFromPrintContentInFrame(frames[i]);
                             if (appointmentNumber == "null" && frameResult.appointmentNumber != "null")
@@ -3513,10 +3791,10 @@ namespace AutoFinan
             try
             {
                 Console.WriteLine("      开始查找printContent容器...");
-                
+
                 // 等待页面稳定
                 await Task.Delay(2000);
-                
+
                 // 查找printContent容器
                 var printContentCount = await page.Locator("#printContent").CountAsync();
                 Console.WriteLine($"      主页面找到 {printContentCount} 个 printContent 容器");
@@ -3524,7 +3802,7 @@ namespace AutoFinan
                 if (printContentCount > 0)
                 {
                     var printContent = page.Locator("#printContent").First;
-                    
+
                     // 等待元素可见
                     try
                     {
@@ -3534,7 +3812,7 @@ namespace AutoFinan
                     {
                         Console.WriteLine($"      等待printContent可见时超时: {ex.Message}");
                     }
-                    
+
                     // 获取容器的HTML内容
                     var html = await printContent.InnerHTMLAsync();
                     Console.WriteLine($"      获取到printContent HTML内容，长度: {html?.Length ?? 0}");
@@ -3602,7 +3880,7 @@ namespace AutoFinan
                 else
                 {
                     Console.WriteLine("      ✗ 主页面未找到printContent容器");
-                    
+
                     // 尝试查找其他可能的容器
                     var possibleContainers = new[] { ".printdiv", "[id*='print']", "[class*='print']" };
                     foreach (var selector in possibleContainers)
@@ -3635,21 +3913,21 @@ namespace AutoFinan
             try
             {
                 Console.WriteLine("      在iframe中查找printContent容器...");
-                
+
                 // 获取iframe信息
                 var frameUrl = frame.Url;
                 var frameName = frame.Name;
                 Console.WriteLine($"      iframe URL: {frameUrl}");
                 Console.WriteLine($"      iframe Name: {frameName}");
-                
+
                 // 查找printContent容器
                 var printContentCount = await frame.Locator("#printContent").CountAsync();
                 Console.WriteLine($"      在iframe中找到 {printContentCount} 个 printContent 容器");
-                
+
                 if (printContentCount > 0)
                 {
                     var printContent = frame.Locator("#printContent").First;
-                    
+
                     // 等待元素可见
                     try
                     {
@@ -3659,7 +3937,7 @@ namespace AutoFinan
                     {
                         Console.WriteLine($"      等待iframe中printContent可见时超时: {ex.Message}");
                     }
-                    
+
                     // 获取容器的HTML内容
                     var html = await printContent.InnerHTMLAsync();
                     Console.WriteLine($"      在iframe中获取到printContent HTML内容，长度: {html?.Length ?? 0}");
@@ -3727,7 +4005,7 @@ namespace AutoFinan
                 else
                 {
                     Console.WriteLine("      ✗ iframe中未找到printContent容器");
-                    
+
                     // 尝试查找其他可能的容器
                     var possibleContainers = new[] { ".printdiv", "[id*='print']", "[class*='print']", "table", "tbody" };
                     foreach (var selector in possibleContainers)
@@ -3967,7 +4245,7 @@ namespace AutoFinan
 
             // 移除空格、换行符、逗号等
             var cleaned = totalAmount.Trim().Replace("\n", "").Replace("\r", "").Replace(",", "");
-            
+
             // 确保是数字格式
             if (decimal.TryParse(cleaned, out decimal amount))
             {

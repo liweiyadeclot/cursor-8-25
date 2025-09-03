@@ -1,0 +1,24 @@
+{
+  "ScreenPositions": {
+    "first_button": {
+      "x": 100,
+      "y": 100,
+      "description": "测试按钮"
+    },
+    "folder_input": {
+      "x": 200,
+      "y": 200,
+      "description": "测试输入框"
+    },
+    "file_input": {
+      "x": 300,
+      "y": 300,
+      "description": "测试文件输入框"
+    },
+    "confirm_button": {
+      "x": 400,
+      "y": 400,
+      "description": "测试确认按钮"
+    }
+  }
+}

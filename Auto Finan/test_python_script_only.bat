@@ -39,3 +39,9 @@ python test_mouse_keyboard.py --config config.json --folder "C:\Users\FH\Documen
 echo.
 echo 测试完成！
 pause
+
+
+
+
+
+

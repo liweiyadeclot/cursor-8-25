@@ -1,0 +1,31 @@
+{
+  "ExcelFilePath": "420财务050823.xlsx",
+  "MappingFilePath": "标题-ID.xlsx",
+  "SheetName": "2-报销",
+  "MappingSheetName": "Sheet1",
+  "SaveFolderPath": "C:\\Users\\FH\\source\\repos\\Auto Finan\\prints",
+  "ScreenPositions": {
+    "first_button": {
+      "x": 1562,
+      "y": 1083,
+      "description": "第一个要点击的按钮坐标"
+    },
+    "folder_input": {
+      "x": 720,
+      "y": 98,
+      "description": "文件夹路径输入框坐标"
+    },
+    "file_input": {
+      "x": 313,
+      "y": 753,
+      "description": "文件名输入框坐标"
+    },
+    "confirm_button": {
+      "x": 971,
+      "y": 869,
+      "description": "确认按钮坐标"
+    }
+  }
+}
+
+
