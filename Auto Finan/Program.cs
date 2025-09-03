@@ -298,7 +298,7 @@ namespace AutoFinan
                 }
 
                 Console.WriteLine("\n=== 所有数据处理完成 ===");
-                
+
                 // 保存Excel文件
                 SaveExcelFile();
             }
@@ -501,13 +501,13 @@ namespace AutoFinan
         {
             var headers = new List<string>();
             int colCount = worksheet.Dimension?.Columns ?? 0;
-            
+
             for (int col = 1; col <= colCount; col++)
             {
                 var headerValue = worksheet.Cells[1, col].Value?.ToString() ?? "";
                 headers.Add(headerValue);
             }
-            
+
             return headers;
         }
 
@@ -520,13 +520,13 @@ namespace AutoFinan
             {
                 Console.WriteLine($"      检测到?列标题: {headerName}");
                 Console.WriteLine($"      参数: columnName={columnName}, row={row}, headerName={headerName}, cellValue={cellValue}");
-                
+
                 // 移除?前缀，获取实际的列名
                 string actualColumnName = headerName.Substring(1);
                 Console.WriteLine($"      实际列名: {actualColumnName}");
-                
+
                 string valueToWrite = "";
-                
+
                 // 根据不同的列名处理不同的逻辑
                 switch (actualColumnName.ToLower())
                 {
@@ -534,24 +534,57 @@ namespace AutoFinan
                         valueToWrite = lastSavedPdfPath ?? "未生成PDF文件";
                         Console.WriteLine($"      填写PDF路径: {valueToWrite}");
                         break;
-                        
+
                     case "预约号":
-                        var (appointmentNumber, _) = await ExtractAppointmentInfoFromPage();
-                        valueToWrite = appointmentNumber ?? "未获取到预约号";
+                        // 从lastSavedPdfPath中提取预约号，避免页面跳转后无法获取
+                        if (!string.IsNullOrEmpty(lastSavedPdfPath))
+                        {
+                            var fileName = Path.GetFileNameWithoutExtension(lastSavedPdfPath);
+                            var parts = fileName.Split('-');
+                            if (parts.Length >= 1)
+                            {
+                                valueToWrite = parts[0];
+                            }
+                            else
+                            {
+                                valueToWrite = "未获取到预约号";
+                            }
+                        }
+                        else
+                        {
+                            valueToWrite = "未获取到预约号";
+                        }
                         Console.WriteLine($"      填写预约号: {valueToWrite}");
                         break;
-                        
+
                     case "涉及总金额":
-                        var (_, totalAmount) = await ExtractAppointmentInfoFromPage();
-                        valueToWrite = totalAmount ?? "未获取到金额";
-                        Console.WriteLine($"      填写申请总金额: {valueToWrite}");
+                    case "涉及金额":
+                        // 从lastSavedPdfPath中提取金额，避免页面跳转后无法获取
+                        if (!string.IsNullOrEmpty(lastSavedPdfPath))
+                        {
+                            var fileName = Path.GetFileNameWithoutExtension(lastSavedPdfPath);
+                            var parts = fileName.Split('-');
+                            if (parts.Length >= 2)
+                            {
+                                valueToWrite = parts[1];
+                            }
+                            else
+                            {
+                                valueToWrite = "未获取到金额";
+                            }
+                        }
+                        else
+                        {
+                            valueToWrite = "未获取到金额";
+                        }
+                        Console.WriteLine($"      填写涉及金额: {valueToWrite}");
                         break;
-                        
+
                     case "当前时间":
                         valueToWrite = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                         Console.WriteLine($"      填写当前时间: {valueToWrite}");
                         break;
-                        
+
                     case "文件名":
                         if (!string.IsNullOrEmpty(lastSavedPdfPath))
                         {
@@ -563,12 +596,12 @@ namespace AutoFinan
                         }
                         Console.WriteLine($"      填写文件名: {valueToWrite}");
                         break;
-                        
+
                     default:
                         Console.WriteLine($"      未知的?列名: {actualColumnName}，跳过处理");
                         return;
                 }
-                
+
                 // 写入Excel单元格
                 Console.WriteLine($"      准备写入Excel: 行={row}, 标题={headerName}, 值={valueToWrite}");
                 WriteToExcelCell(row, headerName, valueToWrite);
@@ -591,7 +624,7 @@ namespace AutoFinan
                 if (currentPackage != null)
                 {
                     Console.WriteLine("      正在保存Excel文件...");
-                    
+
                     // 获取文件路径信息
                     var fileInfo = currentPackage.File;
                     if (fileInfo != null)
@@ -599,7 +632,7 @@ namespace AutoFinan
                         Console.WriteLine($"      文件路径: {fileInfo.FullName}");
                         Console.WriteLine($"      文件是否存在: {fileInfo.Exists}");
                         Console.WriteLine($"      文件大小: {fileInfo.Length} 字节");
-                        
+
                         // 检查文件权限
                         try
                         {
@@ -620,7 +653,7 @@ namespace AutoFinan
                             return;
                         }
                     }
-                    
+
                     // 保存文件
                     try
                     {
@@ -630,7 +663,7 @@ namespace AutoFinan
                     catch (Exception saveEx)
                     {
                         Console.WriteLine($"      直接保存失败，尝试备用保存方法: {saveEx.Message}");
-                        
+
                         // 备用保存方法：尝试保存到临时文件
                         try
                         {
@@ -680,32 +713,31 @@ namespace AutoFinan
             try
             {
                 Console.WriteLine($"      开始写入Excel: 行={row}, 列名={columnName}, 值={value}");
-                
+
                 if (currentWorksheet == null)
                 {
                     Console.WriteLine($"      警告: currentWorksheet为null，无法写入Excel");
                     return;
                 }
-                
+
                 // 将列名转换为列索引
                 int columnIndex = GetColumnIndex(columnName);
                 Console.WriteLine($"      列名'{columnName}'对应的索引: {columnIndex}");
-                
+
                 if (columnIndex <= 0)
                 {
                     Console.WriteLine($"      警告: 无法找到列 {columnName}");
                     Console.WriteLine($"      当前表头: {string.Join(", ", currentHeaders ?? new List<string>())}");
                     return;
                 }
-                
+
                 // 尝试写入Excel单元格
                 try
                 {
                     currentWorksheet.Cells[row, columnIndex].Value = value;
                     Console.WriteLine($"      成功写入Excel: {columnName}{row} = {value}");
-                    
-                    // 立即保存Excel文件
-                    SaveExcelFile();
+
+                    // 不立即保存，在主循环结束时统一保存
                 }
                 catch (System.IO.IOException ex)
                 {
@@ -731,7 +763,7 @@ namespace AutoFinan
         private int GetColumnIndex(string columnName)
         {
             if (currentHeaders == null) return -1;
-            
+
             for (int i = 0; i < currentHeaders.Count; i++)
             {
                 if (currentHeaders[i] == columnName)
@@ -3613,12 +3645,12 @@ namespace AutoFinan
                 if (result.Success)
                 {
                     Console.WriteLine("      ✓ 打印确认单后续处理成功！");
-                    
+
                     // 更新最后保存的PDF路径
                     string fullPdfPath = Path.Combine(folderPath, fileName);
                     lastSavedPdfPath = fullPdfPath;
                     Console.WriteLine($"      ✓ 已更新最后保存的PDF路径: {fullPdfPath}");
-                    
+
                     if (!string.IsNullOrEmpty(result.Output))
                     {
                         Console.WriteLine($"      输出: {result.Output}");
