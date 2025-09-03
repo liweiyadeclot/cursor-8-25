@@ -73,6 +73,7 @@ namespace AutoFinan
         private string lastSavedPdfPath; // 最后保存的PDF路径
         private ExcelPackage currentPackage; // 当前Excel包引用
 
+        private int lastRow;                // 最近处理的报销单的首行行号
         public async Task RunAsync()
         {
             Console.WriteLine("开始读取配置文件...");
@@ -226,6 +227,8 @@ namespace AutoFinan
 
                 for (int row = 2; row <= rowCount; row++) // 从第2行开始（跳过标题行）
                 {
+                    lastRow = row;
+
                     Console.WriteLine($"\n--- 处理第 {row} 行数据 ---");
 
                     // 第二层循环：从左至右，处理当前行的每个单元格
@@ -290,6 +293,10 @@ namespace AutoFinan
                         // 如果不是子序列开始列，则正常处理单元格
                         if (!subsequenceStartColumns.Contains(col) && (!string.IsNullOrEmpty(cellValue) || headers[col - 1].StartsWith("?")))
                         {
+                            if(headerName == "预约单状态" && cellValue == "已预约")
+                            {
+                                break;
+                            }
                             await ProcessCell(columnName, row, headerName, cellValue);
                         }
                     }
@@ -596,7 +603,34 @@ namespace AutoFinan
                         }
                         Console.WriteLine($"      填写文件名: {valueToWrite}");
                         break;
-
+                    case "预约单状态":
+                        if (!string.IsNullOrEmpty(lastSavedPdfPath))
+                        {
+                            var fileName = Path.GetFileNameWithoutExtension(lastSavedPdfPath);
+                            var parts = fileName.Split('-');
+                            if (parts.Length >= 2)
+                            {
+                                string appointID = parts[0];
+                                if(appointID != "null")
+                                {
+                                    valueToWrite = "已预约";
+                                }
+                                else
+                                {
+                                    valueToWrite = "未预约";
+                                }
+                            }
+                            else
+                            {
+                                valueToWrite = "未预约";
+                            }
+                        }
+                        else
+                        {
+                            valueToWrite = "未预约";
+                        }
+                        Console.WriteLine($"      填写预约单状态: {valueToWrite}");
+                        break;
                     default:
                         Console.WriteLine($"      未知的?列名: {actualColumnName}，跳过处理");
                         return;
@@ -604,7 +638,8 @@ namespace AutoFinan
 
                 // 写入Excel单元格
                 Console.WriteLine($"      准备写入Excel: 行={row}, 标题={headerName}, 值={valueToWrite}");
-                WriteToExcelCell(row, headerName, valueToWrite);
+                //WriteToExcelCell(row, headerName, valueToWrite);
+                WriteToExcelCell(lastRow, actualColumnName, valueToWrite);
                 Console.WriteLine($"      ✓ 已填写{actualColumnName}: {valueToWrite}");
             }
             catch (Exception ex)
@@ -3412,7 +3447,7 @@ namespace AutoFinan
                     Console.WriteLine($"      找到 {frames.Count} 个iframe");
 
                     // 查找所有iframe
-                    for (int i = 0; i < frames.Count; i++)
+                    for (int i = 6; i < frames.Count; i++)
                     {
                         try
                         {
