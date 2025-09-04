@@ -33,12 +33,44 @@ namespace AutoFinan
             // 设置EPPlus许可证上下文
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-            Console.WriteLine("=== 财务报销自动化系统 ===");
+            Console.WriteLine("=== 财务自动化系统 ===");
+            Console.WriteLine("请选择要执行的程序：");
+            Console.WriteLine("1. 执行查询程序（科研财务系统）");
+            Console.WriteLine("2. 执行报销程序（财务报销自动化）");
+            Console.WriteLine();
+
+            int choice = 0;
+            while (choice != 1 && choice != 2)
+            {
+                Console.Write("请输入选择 (1 或 2): ");
+                string input = Console.ReadLine();
+                
+                if (int.TryParse(input, out choice) && (choice == 1 || choice == 2))
+                {
+                    break;
+                }
+                else
+                {
+                    Console.WriteLine("无效输入，请输入 1 或 2");
+                }
+            }
+
+            Console.WriteLine();
 
             try
             {
-                var automation = new ReimbursementAutomation();
-                await automation.RunAsync();
+                if (choice == 1)
+                {
+                    Console.WriteLine("=== 启动科研财务系统查询程序 ===");
+                    var researchAutomation = new ResearchFinanceAutomation();
+                    await RunResearchFinanceProgram(researchAutomation);
+                }
+                else
+                {
+                    Console.WriteLine("=== 启动财务报销自动化程序 ===");
+                    var reimbursementAutomation = new ReimbursementAutomation();
+                    await reimbursementAutomation.RunAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -48,6 +80,87 @@ namespace AutoFinan
 
             Console.WriteLine("程序结束，按任意键退出...");
             Console.ReadKey();
+        }
+
+        /// <summary>
+        /// 运行科研财务系统查询程序
+        /// </summary>
+        private static async Task RunResearchFinanceProgram(ResearchFinanceAutomation automation)
+        {
+            try
+            {
+                // 1. 初始化浏览器
+                await automation.InitializeAsync();
+                
+                // 2. 执行登录
+                Console.WriteLine("\n开始登录流程...");
+                bool loginSuccess = await automation.LoginAsync();
+                
+                if (loginSuccess)
+                {
+                    Console.WriteLine("登录成功！可以开始查找信息了。");
+                    
+                    // 3. 自动点击"数据查询及公示"导航按钮
+                    Console.WriteLine("\n正在自动点击'数据查询及公示'导航按钮...");
+                    bool navigationSuccess = await automation.ClickDataQueryAndPublicityButtonAsync();
+                    
+                    if (navigationSuccess)
+                    {
+                        Console.WriteLine("导航成功！现在可以开始查找信息了。");
+                        
+                        // 4. 提取页面信息
+                        Console.WriteLine("\n开始提取页面信息...");
+                        var pageInfo = await automation.ExtractPageInfoAsync();
+                        
+                        // 5. 显示提取的信息
+                        Console.WriteLine("\n=== 提取的页面信息 ===");
+                        foreach (var kvp in pageInfo)
+                        {
+                            Console.WriteLine($"{kvp.Key}: {kvp.Value}");
+                        }
+                        
+                        // 6. 等待用户查看结果
+                        Console.WriteLine("\n信息提取完成，请查看结果...");
+                        await automation.WaitForUserOperationAsync();
+                    }
+                    else
+                    {
+                        Console.WriteLine("自动导航失败，请手动导航到需要查找信息的页面...");
+                        await automation.WaitForUserOperationAsync();
+                        
+                        // 4. 提取页面信息
+                        Console.WriteLine("\n开始提取页面信息...");
+                        var pageInfo = await automation.ExtractPageInfoAsync();
+                        
+                        // 5. 显示提取的信息
+                        Console.WriteLine("\n=== 提取的页面信息 ===");
+                        foreach (var kvp in pageInfo)
+                        {
+                            Console.WriteLine($"{kvp.Key}: {kvp.Value}");
+                        }
+                        
+                        // 6. 等待用户查看结果
+                        Console.WriteLine("\n信息提取完成，请查看结果...");
+                        await automation.WaitForUserOperationAsync();
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("登录失败，程序结束。");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"科研财务系统程序运行出错: {ex.Message}");
+                Console.WriteLine($"详细错误: {ex}");
+            }
+            finally
+            {
+                // 7. 清理资源
+                Console.WriteLine("\n正在清理资源...");
+                await automation.CloseAsync();
+                Console.WriteLine("科研财务系统程序结束。");
+            }
         }
     }
 

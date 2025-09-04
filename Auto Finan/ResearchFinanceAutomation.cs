@@ -14,167 +14,167 @@ namespace AutoFinan
         private bool isLoggedIn = false;
 
         /// <summary>
-        /// Æô¶¯ä¯ÀÀÆ÷²¢µ¼º½µ½¿ÆÑĞ²ÆÎñÏµÍ³
+        /// å¯åŠ¨æµè§ˆå™¨å¹¶å¯¼èˆªåˆ°ç§‘ç ”è´¢åŠ¡ç³»ç»Ÿ
         /// </summary>
         public async Task InitializeAsync()
         {
             try
             {
-                Console.WriteLine("=== ¿ÆÑĞ²ÆÎñÏµÍ³×Ô¶¯»¯ ===");
-                Console.WriteLine("ÕıÔÚÆô¶¯ä¯ÀÀÆ÷...");
+                Console.WriteLine("=== ç§‘ç ”è´¢åŠ¡ç³»ç»Ÿè‡ªåŠ¨åŒ– ===");
+                Console.WriteLine("æ­£åœ¨å¯åŠ¨æµè§ˆå™¨...");
 
                 playwright = await Playwright.CreateAsync();
                 browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
-                    Headless = false, // ÏÔÊ¾ä¯ÀÀÆ÷´°¿Ú
-                    SlowMo = 100 // ·ÅÂı²Ù×÷ËÙ¶È£¬±ãÓÚ¹Û²ì
+                    Headless = false, // æ˜¾ç¤ºæµè§ˆå™¨çª—å£
+                    SlowMo = 100 // æ”¾æ…¢æ“ä½œé€Ÿåº¦ï¼Œä¾¿äºè§‚å¯Ÿ
                 });
 
                 page = await browser.NewPageAsync();
-                page.SetDefaultTimeout(10000); // 10Ãë³¬Ê±
+                page.SetDefaultTimeout(10000); // 10ç§’è¶…æ—¶
 
-                Console.WriteLine("ä¯ÀÀÆ÷Æô¶¯³É¹¦");
-                Console.WriteLine("ÕıÔÚµ¼º½µ½¿ÆÑĞ²ÆÎñÏµÍ³...");
+                Console.WriteLine("æµè§ˆå™¨å¯åŠ¨æˆåŠŸ");
+                Console.WriteLine("æ­£åœ¨å¯¼èˆªåˆ°ç§‘ç ”è´¢åŠ¡ç³»ç»Ÿ...");
 
-                // µ¼º½µ½Ä¿±êÍøÒ³
+                // å¯¼èˆªåˆ°ç›®æ ‡ç½‘é¡µ
                 await page.GotoAsync("https://www.kycw.uestc.edu.cn/WFManager/home.jsp");
                 await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
 
-                Console.WriteLine("³É¹¦µ¼º½µ½¿ÆÑĞ²ÆÎñÏµÍ³");
+                Console.WriteLine("æˆåŠŸå¯¼èˆªåˆ°ç§‘ç ”è´¢åŠ¡ç³»ç»Ÿ");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"³õÊ¼»¯Ê§°Ü: {ex.Message}");
+                Console.WriteLine($"åˆå§‹åŒ–å¤±è´¥: {ex.Message}");
                 throw;
             }
         }
 
         /// <summary>
-        /// Ö´ĞĞµÇÂ¼Á÷³Ì
+        /// æ‰§è¡Œç™»å½•æµç¨‹
         /// </summary>
         public async Task<bool> LoginAsync()
         {
             try
             {
-                Console.WriteLine("¿ªÊ¼Ö´ĞĞµÇÂ¼Á÷³Ì...");
+                Console.WriteLine("å¼€å§‹æ‰§è¡Œç™»å½•æµç¨‹...");
 
-                // µÈ´ıµÇÂ¼±íµ¥¼ÓÔØ
+                // ç­‰å¾…ç™»å½•è¡¨å•åŠ è½½
                 await page.WaitForSelectorAsync("#uid", new PageWaitForSelectorOptions { Timeout = 5000 });
-                Console.WriteLine("µÇÂ¼±íµ¥¼ÓÔØÍê³É");
+                Console.WriteLine("ç™»å½•è¡¨å•åŠ è½½å®Œæˆ");
 
-                // ÌîĞ´ÓÃ»§Ãû
+                // å¡«å†™ç”¨æˆ·å
                 await page.FillAsync("#uid", "5070016");
-                Console.WriteLine("ÒÑÌîĞ´ÓÃ»§Ãû: 5070016");
+                Console.WriteLine("å·²å¡«å†™ç”¨æˆ·å: 5070016");
 
-                // ÌîĞ´ÃÜÂë
+                // å¡«å†™å¯†ç 
                 await page.FillAsync("#pwd", "Kp5070016");
-                Console.WriteLine("ÒÑÌîĞ´ÃÜÂë: Kp5070016");
+                Console.WriteLine("å·²å¡«å†™å¯†ç : Kp5070016");
 
-                // µÈ´ıÓÃ»§ÊäÈëÑéÖ¤Âë
-                Console.WriteLine("Çë²é¿´ÑéÖ¤ÂëÍ¼Æ¬²¢ÔÚÏÂ·½ÊäÈëÑéÖ¤Âë:");
-                Console.WriteLine("ÑéÖ¤ÂëÊäÈë¿òID: chkcode1");
-                Console.WriteLine("ÑéÖ¤ÂëÍ¼Æ¬ID: checkcodeImg");
-                Console.WriteLine("µÇÂ¼°´Å¥ID: zhLogin");
+                // ç­‰å¾…ç”¨æˆ·è¾“å…¥éªŒè¯ç 
+                Console.WriteLine("è¯·æŸ¥çœ‹éªŒè¯ç å›¾ç‰‡å¹¶åœ¨ä¸‹æ–¹è¾“å…¥éªŒè¯ç :");
+                Console.WriteLine("éªŒè¯ç è¾“å…¥æ¡†ID: chkcode1");
+                Console.WriteLine("éªŒè¯ç å›¾ç‰‡ID: checkcodeImg");
+                Console.WriteLine("ç™»å½•æŒ‰é’®ID: zhLogin");
                 Console.WriteLine("----------------------------------------");
 
-                // ¸ßÁÁÑéÖ¤ÂëÊäÈë¿ò
+                // é«˜äº®éªŒè¯ç è¾“å…¥æ¡†
                 await page.EvaluateAsync(@"
                     document.getElementById('chkcode1').style.border = '2px solid red';
                     document.getElementById('chkcode1').style.backgroundColor = '#fff3cd';
                     document.getElementById('chkcode1').focus();
                 ");
 
-                // µÈ´ıÓÃ»§ÔÚ¿ØÖÆÌ¨ÊäÈëÑéÖ¤Âë
-                Console.Write("ÇëÊäÈëÑéÖ¤Âë: ");
+                // ç­‰å¾…ç”¨æˆ·åœ¨æ§åˆ¶å°è¾“å…¥éªŒè¯ç 
+                Console.Write("è¯·è¾“å…¥éªŒè¯ç : ");
                 var captchaInput = Console.ReadLine()?.Trim();
 
                 if (string.IsNullOrEmpty(captchaInput))
                 {
-                    Console.WriteLine("´íÎó£ºÑéÖ¤Âë²»ÄÜÎª¿Õ");
+                    Console.WriteLine("é”™è¯¯ï¼šéªŒè¯ç ä¸èƒ½ä¸ºç©º");
                     return false;
                 }
 
-                Console.WriteLine($"ÊÕµ½ÑéÖ¤Âë: {captchaInput}");
+                Console.WriteLine($"æ”¶åˆ°éªŒè¯ç : {captchaInput}");
 
-                // ½«ÑéÖ¤ÂëÌî³äµ½ÍøÒ³ÊäÈë¿ò
+                // å°†éªŒè¯ç å¡«å……åˆ°ç½‘é¡µè¾“å…¥æ¡†
                 await page.FillAsync("#chkcode1", captchaInput);
-                Console.WriteLine("ÑéÖ¤ÂëÒÑÌî³äµ½ÍøÒ³ÊäÈë¿ò");
+                Console.WriteLine("éªŒè¯ç å·²å¡«å……åˆ°ç½‘é¡µè¾“å…¥æ¡†");
 
-                // ÒÆ³ı¸ßÁÁÑùÊ½
+                // ç§»é™¤é«˜äº®æ ·å¼
                 await page.EvaluateAsync(@"
                     document.getElementById('chkcode1').style.border = '';
                     document.getElementById('chkcode1').style.backgroundColor = '';
                 ");
 
-                Console.WriteLine("×¼±¸µã»÷µÇÂ¼°´Å¥...");
+                Console.WriteLine("å‡†å¤‡ç‚¹å‡»ç™»å½•æŒ‰é’®...");
 
-                // µÈ´ıµÇÂ¼°´Å¥¿ÉÓÃ
-                Console.WriteLine("µÈ´ıµÇÂ¼°´Å¥¿ÉÓÃ...");
+                // ç­‰å¾…ç™»å½•æŒ‰é’®å¯ç”¨
+                Console.WriteLine("ç­‰å¾…ç™»å½•æŒ‰é’®å¯ç”¨...");
                 try
                 {
-                    // Ê×ÏÈ³¢ÊÔµÈ´ı°´Å¥¿É¼û
+                    // é¦–å…ˆå°è¯•ç­‰å¾…æŒ‰é’®å¯è§
                     await page.WaitForSelectorAsync("#zhLogin", new PageWaitForSelectorOptions { Timeout = 5000 });
-                    Console.WriteLine("µÇÂ¼°´Å¥ÒÑÕÒµ½");
+                    Console.WriteLine("ç™»å½•æŒ‰é’®å·²æ‰¾åˆ°");
 
-                    // ¼ì²é°´Å¥ÊÇ·ñ¿ÉÓÃ
+                    // æ£€æŸ¥æŒ‰é’®æ˜¯å¦å¯ç”¨
                     var buttonElement = page.Locator("#zhLogin");
                     var isDisabled = await buttonElement.GetAttributeAsync("disabled");
 
                     if (isDisabled != null)
                     {
-                        Console.WriteLine("µÇÂ¼°´Å¥µ±Ç°±»½ûÓÃ£¬µÈ´ıÆôÓÃ...");
-                        // µÈ´ı°´Å¥ÆôÓÃ
+                        Console.WriteLine("ç™»å½•æŒ‰é’®å½“å‰è¢«ç¦ç”¨ï¼Œç­‰å¾…å¯ç”¨...");
+                        // ç­‰å¾…æŒ‰é’®å¯ç”¨
                         await page.WaitForSelectorAsync("#zhLogin:not([disabled])", new PageWaitForSelectorOptions { Timeout = 10000 });
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"µÈ´ıµÇÂ¼°´Å¥Ê±³ö´í: {ex.Message}");
-                    Console.WriteLine("³¢ÊÔÖ±½Óµã»÷µÇÂ¼°´Å¥...");
+                    Console.WriteLine($"ç­‰å¾…ç™»å½•æŒ‰é’®æ—¶å‡ºé”™: {ex.Message}");
+                    Console.WriteLine("å°è¯•ç›´æ¥ç‚¹å‡»ç™»å½•æŒ‰é’®...");
                 }
 
-                // µã»÷µÇÂ¼°´Å¥
-                Console.WriteLine("ÕıÔÚµã»÷µÇÂ¼°´Å¥...");
+                // ç‚¹å‡»ç™»å½•æŒ‰é’®
+                Console.WriteLine("æ­£åœ¨ç‚¹å‡»ç™»å½•æŒ‰é’®...");
                 await page.ClickAsync("#zhLogin");
-                Console.WriteLine("ÒÑµã»÷µÇÂ¼°´Å¥");
+                Console.WriteLine("å·²ç‚¹å‡»ç™»å½•æŒ‰é’®");
 
-                // Ìí¼Óµ÷ÊÔĞÅÏ¢
-                Console.WriteLine("µÈ´ıÒ³ÃæÏìÓ¦...");
-                await Task.Delay(3000); // µÈ´ı3Ãë
+                // æ·»åŠ è°ƒè¯•ä¿¡æ¯
+                Console.WriteLine("ç­‰å¾…é¡µé¢å“åº”...");
+                await Task.Delay(3000); // ç­‰å¾…3ç§’
 
-                // ¼ì²éµ±Ç°URL
+                // æ£€æŸ¥å½“å‰URL
                 var currentUrlAfterClick = page.Url;
-                Console.WriteLine($"µã»÷µÇÂ¼°´Å¥ºóµÄURL: {currentUrlAfterClick}");
+                Console.WriteLine($"ç‚¹å‡»ç™»å½•æŒ‰é’®åçš„URL: {currentUrlAfterClick}");
 
-                // µÈ´ı¸ü³¤Ê±¼äÈÃÒ³ÃæÍêÈ«¼ÓÔØ
+                // ç­‰å¾…æ›´é•¿æ—¶é—´è®©é¡µé¢å®Œå…¨åŠ è½½
                 await Task.Delay(5000);
 
-                // ¼ì²éÊÇ·ñµÇÂ¼³É¹¦ - Ê¹ÓÃ¸ü¿íËÉµÄÅĞ¶ÏÌõ¼ş
+                // æ£€æŸ¥æ˜¯å¦ç™»å½•æˆåŠŸ - ä½¿ç”¨æ›´å®½æ¾çš„åˆ¤æ–­æ¡ä»¶
                 try
                 {
-                    // ¼ì²éURL±ä»¯ - Èç¹ûURL·¢ÉúÁË±ä»¯£¬Í¨³£±íÊ¾µÇÂ¼³É¹¦
+                    // æ£€æŸ¥URLå˜åŒ– - å¦‚æœURLå‘ç”Ÿäº†å˜åŒ–ï¼Œé€šå¸¸è¡¨ç¤ºç™»å½•æˆåŠŸ
                     var finalUrl = page.Url;
-                    Console.WriteLine($"×îÖÕURL: {finalUrl}");
+                    Console.WriteLine($"æœ€ç»ˆURL: {finalUrl}");
 
-                    // Èç¹ûURL°üº¬µÇÂ¼Ïà¹ØµÄ¹Ø¼ü´Ê£¬¿ÉÄÜ»¹ÔÚµÇÂ¼Ò³Ãæ
+                    // å¦‚æœURLåŒ…å«ç™»å½•ç›¸å…³çš„å…³é”®è¯ï¼Œå¯èƒ½è¿˜åœ¨ç™»å½•é¡µé¢
                     if (finalUrl.Contains("login") || finalUrl.Contains("auth"))
                     {
-                        Console.WriteLine("ÈÔÔÚµÇÂ¼Ò³Ãæ£¬µÇÂ¼¿ÉÄÜÊ§°Ü");
+                        Console.WriteLine("ä»åœ¨ç™»å½•é¡µé¢ï¼Œç™»å½•å¯èƒ½å¤±è´¥");
                         return false;
                     }
 
-                    // ¼ì²éÊÇ·ñÓĞÃ÷ÏÔµÄ´íÎóĞÅÏ¢
+                    // æ£€æŸ¥æ˜¯å¦æœ‰æ˜æ˜¾çš„é”™è¯¯ä¿¡æ¯
                     var pageContent = await page.ContentAsync();
-                    if (pageContent.Contains("ÓÃ»§Ãû»òÃÜÂë´íÎó") ||
-                        pageContent.Contains("ÑéÖ¤Âë´íÎó") ||
-                        pageContent.Contains("µÇÂ¼Ê§°Ü"))
+                    if (pageContent.Contains("ç”¨æˆ·åæˆ–å¯†ç é”™è¯¯") ||
+                        pageContent.Contains("éªŒè¯ç é”™è¯¯") ||
+                        pageContent.Contains("ç™»å½•å¤±è´¥"))
                     {
-                        Console.WriteLine("Ò³Ãæ°üº¬Ã÷È·µÄ´íÎóĞÅÏ¢£¬µÇÂ¼Ê§°Ü");
+                        Console.WriteLine("é¡µé¢åŒ…å«æ˜ç¡®çš„é”™è¯¯ä¿¡æ¯ï¼Œç™»å½•å¤±è´¥");
                         return false;
                     }
 
-                    // ¼ì²éÊÇ·ñÓĞµÇÂ¼³É¹¦µÄ±êÊ¶
-                    var successIndicators = new[] { "»¶Ó­", "ÄúºÃ", "µÇÂ¼³É¹¦", "Ê×Ò³", "Ö÷Ò³Ãæ" };
+                    // æ£€æŸ¥æ˜¯å¦æœ‰ç™»å½•æˆåŠŸçš„æ ‡è¯†
+                    var successIndicators = new[] { "æ¬¢è¿", "æ‚¨å¥½", "ç™»å½•æˆåŠŸ", "é¦–é¡µ", "ä¸»é¡µé¢" };
                     var hasSuccessIndicator = false;
 
                     foreach (var indicator in successIndicators)
@@ -184,44 +184,44 @@ namespace AutoFinan
                             var locator = page.Locator($"text={indicator}");
                             if (await locator.CountAsync() > 0)
                             {
-                                Console.WriteLine($"ÕÒµ½³É¹¦±êÊ¶: {indicator}");
+                                Console.WriteLine($"æ‰¾åˆ°æˆåŠŸæ ‡è¯†: {indicator}");
                                 hasSuccessIndicator = true;
                                 break;
                             }
                         }
                         catch
                         {
-                            // ºöÂÔµ¥¸öÑ¡ÔñÆ÷µÄ´íÎó
+                            // å¿½ç•¥å•ä¸ªé€‰æ‹©å™¨çš„é”™è¯¯
                         }
                     }
 
                     if (hasSuccessIndicator)
                     {
-                        Console.WriteLine("µÇÂ¼³É¹¦£¡");
+                        Console.WriteLine("ç™»å½•æˆåŠŸï¼");
                         isLoggedIn = true;
                         return true;
                     }
 
-                    // Èç¹ûÃ»ÓĞÃ÷È·µÄ³É¹¦±êÊ¶£¬µ«URLÒÑ¾­±ä»¯ÇÒÃ»ÓĞ´íÎóĞÅÏ¢£¬Ò²ÈÏÎªµÇÂ¼³É¹¦
+                    // å¦‚æœæ²¡æœ‰æ˜ç¡®çš„æˆåŠŸæ ‡è¯†ï¼Œä½†URLå·²ç»å˜åŒ–ä¸”æ²¡æœ‰é”™è¯¯ä¿¡æ¯ï¼Œä¹Ÿè®¤ä¸ºç™»å½•æˆåŠŸ
                     if (finalUrl != "https://www.kycw.uestc.edu.cn/WFManager/home.jsp")
                     {
-                        Console.WriteLine("URLÒÑ±ä»¯ÇÒÎŞ´íÎóĞÅÏ¢£¬ÈÏÎªµÇÂ¼³É¹¦");
+                        Console.WriteLine("URLå·²å˜åŒ–ä¸”æ— é”™è¯¯ä¿¡æ¯ï¼Œè®¤ä¸ºç™»å½•æˆåŠŸ");
                         isLoggedIn = true;
                         return true;
                     }
 
-                    Console.WriteLine("µÇÂ¼×´Ì¬²»Ã÷È·£¬µ«ÎŞÃ÷È·´íÎó£¬ÈÏÎªµÇÂ¼³É¹¦");
+                    Console.WriteLine("ç™»å½•çŠ¶æ€ä¸æ˜ç¡®ï¼Œä½†æ— æ˜ç¡®é”™è¯¯ï¼Œè®¤ä¸ºç™»å½•æˆåŠŸ");
                     isLoggedIn = true;
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"¼ì²éµÇÂ¼×´Ì¬Ê±³ö´í: {ex.Message}");
-                    // ¼´Ê¹¼ì²é³ö´í£¬Èç¹ûURLÒÑ¾­±ä»¯£¬Ò²ÈÏÎª¿ÉÄÜµÇÂ¼³É¹¦
+                    Console.WriteLine($"æ£€æŸ¥ç™»å½•çŠ¶æ€æ—¶å‡ºé”™: {ex.Message}");
+                    // å³ä½¿æ£€æŸ¥å‡ºé”™ï¼Œå¦‚æœURLå·²ç»å˜åŒ–ï¼Œä¹Ÿè®¤ä¸ºå¯èƒ½ç™»å½•æˆåŠŸ
                     var currentUrl = page.Url;
                     if (currentUrl != "https://www.kycw.uestc.edu.cn/WFManager/home.jsp")
                     {
-                        Console.WriteLine("¼ì²é³ö´íµ«URLÒÑ±ä»¯£¬ÈÏÎªµÇÂ¼³É¹¦");
+                        Console.WriteLine("æ£€æŸ¥å‡ºé”™ä½†URLå·²å˜åŒ–ï¼Œè®¤ä¸ºç™»å½•æˆåŠŸ");
                         isLoggedIn = true;
                         return true;
                     }
@@ -230,13 +230,13 @@ namespace AutoFinan
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"µÇÂ¼¹ı³Ì³ö´í: {ex.Message}");
+                Console.WriteLine($"ç™»å½•è¿‡ç¨‹å‡ºé”™: {ex.Message}");
                 return false;
             }
         }
 
         /// <summary>
-        /// µ¼º½µ½Ö¸¶¨Ò³Ãæ
+        /// å¯¼èˆªåˆ°æŒ‡å®šé¡µé¢
         /// </summary>
         public async Task NavigateToPageAsync(string url)
         {
@@ -244,137 +244,308 @@ namespace AutoFinan
             {
                 if (!isLoggedIn)
                 {
-                    Console.WriteLine("´íÎó£ºÉĞÎ´µÇÂ¼£¬ÇëÏÈÖ´ĞĞµÇÂ¼");
+                    Console.WriteLine("é”™è¯¯ï¼šå°šæœªç™»å½•ï¼Œè¯·å…ˆæ‰§è¡Œç™»å½•");
                     return;
                 }
 
-                Console.WriteLine($"ÕıÔÚµ¼º½µ½: {url}");
+                Console.WriteLine($"æ­£åœ¨å¯¼èˆªåˆ°: {url}");
                 await page.GotoAsync(url);
                 await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-                Console.WriteLine("Ò³Ãæµ¼º½Íê³É");
+                Console.WriteLine("é¡µé¢å¯¼èˆªå®Œæˆ");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Ò³Ãæµ¼º½Ê§°Ü: {ex.Message}");
+                Console.WriteLine($"é¡µé¢å¯¼èˆªå¤±è´¥: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// µã»÷Êı¾İ²éÑ¯¼°¹«Ê¾µ¼º½°´Å¥
+        /// ç‚¹å‡»æ•°æ®æŸ¥è¯¢åŠå…¬ç¤ºå¯¼èˆªæŒ‰é’®
         /// </summary>
         public async Task<bool> ClickDataQueryAndPublicityButtonAsync()
         {
             try
             {
-                if (!isLoggedIn)
+                Console.WriteLine("æ­£åœ¨ç²¾ç¡®æŸ¥æ‰¾'æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'èœå•é¡¹...");
+
+                // é¦–å…ˆåœ¨ä¸»é¡µé¢æŸ¥æ‰¾
+                Console.WriteLine("1. åœ¨ä¸»é¡µé¢æŸ¥æ‰¾...");
+                var buttonLocator = await FindButtonInPage(page, "ä¸»é¡µé¢");
+                if (buttonLocator != null)
                 {
-                    Console.WriteLine("´íÎó£ºÉĞÎ´µÇÂ¼£¬ÇëÏÈÖ´ĞĞµÇÂ¼");
-                    return false;
+                    return await ClickButton(buttonLocator, "ä¸»é¡µé¢");
                 }
 
-                Console.WriteLine("µÈ´ı3Ãëºó¿ªÊ¼µã»÷µ¼º½°´Å¥...");
-                await Task.Delay(3000);
+                // å¦‚æœä¸»é¡µé¢æ²¡æ‰¾åˆ°ï¼Œåœ¨æ‰€æœ‰iframeä¸­æŸ¥æ‰¾
+                Console.WriteLine("2. åœ¨æ‰€æœ‰iframeä¸­æŸ¥æ‰¾...");
+                var frames = page.Frames;
+                Console.WriteLine($"æ‰¾åˆ° {frames.Count} ä¸ªiframe");
 
-                Console.WriteLine("ÕıÔÚ²éÕÒ'Êı¾İ²éÑ¯¼°¹«Ê¾'µ¼º½°´Å¥...");
-
-                // »ùÓÚÓÃ»§Ìá¹©µÄHTML´úÂë£¬Ê¹ÓÃ¸ü¾«È·µÄÑ¡ÔñÆ÷
-                var buttonSelectors = new[]
+                for (int i = 0; i < frames.Count; i++)
                 {
-                    // ¾«È·Æ¥Åä£º°üº¬"Êı¾İ²éÑ¯¼°¹«Ê¾"ÎÄ±¾µÄÁ´½Ó
-                    "a:has-text('Êı¾İ²éÑ¯¼°¹«Ê¾')",
-                    // °üº¬ÌØ¶¨onclickÊôĞÔµÄÁ´½Ó
-                    "a[onclick*='ÏîÄ¿Ö´ĞĞÇé¿ö²éÑ¯']",
-                    "a[onclick*='Êı¾İ²éÑ¯¼°¹«Ê¾']",
-                    // °üº¬ÌØ¶¨spanÎÄ±¾µÄÁ´½Ó
-                    "a:has(span:text('Êı¾İ²éÑ¯¼°¹«Ê¾'))",
-                    // Í¨ÓÃÎÄ±¾Æ¥Åä
-                    "text=Êı¾İ²éÑ¯¼°¹«Ê¾",
-                    // °üº¬ÌØ¶¨Àà»òÑùÊ½µÄÁ´½Ó
-                    "a[style*='cursor:pointer']:has-text('Êı¾İ²éÑ¯¼°¹«Ê¾')"
-                };
-
-                ILocator buttonLocator = null;
-                foreach (var selector in buttonSelectors)
-                {
+                    var frame = frames[i];
+                    Console.WriteLine($"æ£€æŸ¥iframe {i + 1}: {frame.Name ?? "æœªå‘½å"} - {frame.Url}");
+                    
                     try
                     {
-                        var locator = page.Locator(selector);
-                        if (await locator.CountAsync() > 0)
+                        var frameButtonLocator = await FindButtonInFrame(frame, $"iframe {i + 1}");
+                        if (frameButtonLocator != null)
                         {
-                            buttonLocator = locator;
-                            Console.WriteLine($"ÕÒµ½°´Å¥£¬Ê¹ÓÃÑ¡ÔñÆ÷: {selector}");
-                            break;
+                            return await ClickButton(frameButtonLocator, $"iframe {i + 1}");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Ñ¡ÔñÆ÷ {selector} ²éÕÒÊ§°Ü: {ex.Message}");
+                        Console.WriteLine($"æ£€æŸ¥iframe {i + 1} æ—¶å‡ºé”™: {ex.Message}");
                     }
                 }
 
-                if (buttonLocator == null)
-                {
-                    Console.WriteLine("Î´ÕÒµ½'Êı¾İ²éÑ¯¼°¹«Ê¾'°´Å¥£¬³¢ÊÔ²éÕÒ°üº¬¸ÃÎÄ±¾µÄÔªËØ...");
-
-                    // ²éÕÒËùÓĞ°üº¬"Êı¾İ²éÑ¯¼°¹«Ê¾"ÎÄ±¾µÄÔªËØ
-                    var allElements = await page.Locator("*:has-text('Êı¾İ²éÑ¯¼°¹«Ê¾')").AllAsync();
-                    if (allElements.Count > 0)
-                    {
-                        Console.WriteLine($"ÕÒµ½ {allElements.Count} ¸ö°üº¬'Êı¾İ²éÑ¯¼°¹«Ê¾'ÎÄ±¾µÄÔªËØ");
-
-                        // ³¢ÊÔµã»÷µÚÒ»¸ö¿Éµã»÷µÄÔªËØ
-                        for (int i = 0; i < allElements.Count; i++)
-                        {
-                            try
-                            {
-                                var element = allElements[i];
-                                var tagName = await element.EvaluateAsync<string>("el => el.tagName.toLowerCase()");
-                                var isClickable = await element.EvaluateAsync<bool>("el => !!(el.onclick || el.getAttribute('href') || el.tagName.toLowerCase() === 'a')");
-
-                                Console.WriteLine($"ÔªËØ {i + 1}: ±êÇ©={tagName}, ¿Éµã»÷={isClickable}");
-
-                                if (isClickable)
-                                {
-                                    Console.WriteLine($"³¢ÊÔµã»÷ÔªËØ {i + 1}...");
-                                    await element.ClickAsync();
-                                    Console.WriteLine("µ¼º½°´Å¥µã»÷³É¹¦£¡");
-                                    return true;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"µã»÷ÔªËØ {i + 1} Ê§°Ü: {ex.Message}");
-                            }
-                        }
-                    }
-
-                    Console.WriteLine("ÎŞ·¨ÕÒµ½¿Éµã»÷µÄ'Êı¾İ²éÑ¯¼°¹«Ê¾'°´Å¥");
-                    return false;
-                }
-
-                // µã»÷ÕÒµ½µÄ°´Å¥
-                Console.WriteLine("ÕıÔÚµã»÷'Êı¾İ²éÑ¯¼°¹«Ê¾'µ¼º½°´Å¥...");
-                await buttonLocator.ClickAsync();
-                Console.WriteLine("µ¼º½°´Å¥µã»÷³É¹¦£¡");
-
-                // µÈ´ıÒ³ÃæÏìÓ¦
-                await Task.Delay(2000);
-
-                // ¼ì²éÒ³ÃæÊÇ·ñ·¢Éú±ä»¯
-                var currentUrl = page.Url;
-                Console.WriteLine($"µã»÷µ¼º½°´Å¥ºóµÄURL: {currentUrl}");
-
-                return true;
+                Console.WriteLine("åœ¨æ‰€æœ‰é¡µé¢å’Œiframeä¸­éƒ½æœªæ‰¾åˆ°'æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'æŒ‰é’®");
+                return false;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"µã»÷µ¼º½°´Å¥Ê§°Ü: {ex.Message}");
+                Console.WriteLine($"æŸ¥æ‰¾æŒ‰é’®æ—¶å‘ç”Ÿé”™è¯¯: {ex.Message}");
                 return false;
             }
         }
 
         /// <summary>
-        /// ²éÕÒÒ³ÃæÖĞµÄÌØ¶¨ĞÅÏ¢
+        /// åœ¨æŒ‡å®šé¡µé¢ä¸­æŸ¥æ‰¾æŒ‰é’®
+        /// </summary>
+        private async Task<ILocator> FindButtonInPage(IPage pageOrFrame, string pageName)
+        {
+            try
+            {
+                Console.WriteLine($"  åœ¨{pageName}ä¸­ä½¿ç”¨ç²¾ç¡®é€‰æ‹©å™¨æŸ¥æ‰¾...");
+
+                // ä½¿ç”¨éå¸¸ç²¾ç¡®çš„é€‰æ‹©å™¨ï¼ŒåŸºäºHTMLç»“æ„
+                var exactSelector = "ul#ulLevel1List > li.level1menu:has(a[onclick*='é¡¹ç›®æ‰§è¡Œæƒ…å†µæŸ¥è¯¢'])";
+                var buttonLocator = pageOrFrame.Locator(exactSelector);
+                var count = await buttonLocator.CountAsync();
+
+                if (count > 0)
+                {
+                    Console.WriteLine($"  åœ¨{pageName}ä¸­æ‰¾åˆ°æŒ‰é’®ï¼Œä½¿ç”¨é€‰æ‹©å™¨: {exactSelector}");
+                    return buttonLocator;
+                }
+
+                Console.WriteLine($"  åœ¨{pageName}ä¸­ä½¿ç”¨ç²¾ç¡®é€‰æ‹©å™¨æœªæ‰¾åˆ°ï¼Œå°è¯•å¤‡ç”¨é€‰æ‹©å™¨...");
+
+                // å¤‡ç”¨é€‰æ‹©å™¨
+                var backupSelectors = new[]
+                {
+                    "li.level1menu:has(a:has(span:text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º')))",
+                    "a:has(span:text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'))",
+                    "text=æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º",
+                    "a[onclick*='é¡¹ç›®æ‰§è¡Œæƒ…å†µæŸ¥è¯¢']",
+                    "a[onclick*='æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º']"
+                };
+
+                foreach (var selector in backupSelectors)
+                {
+                    try
+                    {
+                        buttonLocator = pageOrFrame.Locator(selector);
+                        count = await buttonLocator.CountAsync();
+                        if (count > 0)
+                        {
+                            Console.WriteLine($"  åœ¨{pageName}ä¸­æ‰¾åˆ°æŒ‰é’®ï¼Œä½¿ç”¨é€‰æ‹©å™¨: {selector}");
+                            return buttonLocator;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  åœ¨{pageName}ä¸­ä½¿ç”¨é€‰æ‹©å™¨ {selector} å¤±è´¥: {ex.Message}");
+                    }
+                }
+
+                // å°è¯•æŸ¥æ‰¾åŒ…å«æ–‡æœ¬çš„æ‰€æœ‰å…ƒç´ 
+                Console.WriteLine($"  åœ¨{pageName}ä¸­å°è¯•æŸ¥æ‰¾åŒ…å«'æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'æ–‡æœ¬çš„æ‰€æœ‰å…ƒç´ ...");
+                var allElements = await pageOrFrame.Locator("*:has-text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º')").AllAsync();
+                Console.WriteLine($"  åœ¨{pageName}ä¸­æ‰¾åˆ° {allElements.Count} ä¸ªåŒ…å«'æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'æ–‡æœ¬çš„å…ƒç´ ");
+
+                foreach (var element in allElements)
+                {
+                    try
+                    {
+                        var tagName = await element.EvaluateAsync<string>("el => el.tagName.toLowerCase()");
+                        var isClickable = await element.EvaluateAsync<bool>("el => !!(el.onclick || el.getAttribute('href') || el.tagName.toLowerCase() === 'a')");
+                        
+                        Console.WriteLine($"    å…ƒç´ : æ ‡ç­¾={tagName}, å¯ç‚¹å‡»={isClickable}");
+                        
+                        if (isClickable)
+                        {
+                            // åˆ›å»ºä¸€ä¸ªå®šä½å™¨æ¥åŒ…è£…è¿™ä¸ªå…ƒç´ 
+                            var elementIndex = -1;
+                            for (int j = 0; j < allElements.Count; j++)
+                            {
+                                if (allElements[j] == element)
+                                {
+                                    elementIndex = j;
+                                    break;
+                                }
+                            }
+                            
+                            if (elementIndex >= 0)
+                            {
+                                var elementLocator = pageOrFrame.Locator($"*:has-text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º')").Nth(elementIndex);
+                                Console.WriteLine($"  åœ¨{pageName}ä¸­æ‰¾åˆ°å¯ç‚¹å‡»çš„æŒ‰é’®å…ƒç´ ");
+                                return elementLocator;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"    æ£€æŸ¥å…ƒç´ æ—¶å‡ºé”™: {ex.Message}");
+                    }
+                }
+
+                Console.WriteLine($"  åœ¨{pageName}ä¸­æœªæ‰¾åˆ°æŒ‰é’®");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  åœ¨{pageName}ä¸­æŸ¥æ‰¾æŒ‰é’®æ—¶å‡ºé”™: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// åœ¨æŒ‡å®šiframeä¸­æŸ¥æ‰¾æŒ‰é’®
+        /// </summary>
+        private async Task<ILocator> FindButtonInFrame(IFrame frame, string frameName)
+        {
+            try
+            {
+                Console.WriteLine($"  åœ¨{frameName}ä¸­ä½¿ç”¨ç²¾ç¡®é€‰æ‹©å™¨æŸ¥æ‰¾...");
+
+                // ä½¿ç”¨éå¸¸ç²¾ç¡®çš„é€‰æ‹©å™¨ï¼ŒåŸºäºHTMLç»“æ„
+                var exactSelector = "ul#ulLevel1List > li.level1menu:has(a[onclick*='é¡¹ç›®æ‰§è¡Œæƒ…å†µæŸ¥è¯¢'])";
+                var buttonLocator = frame.Locator(exactSelector);
+                var count = await buttonLocator.CountAsync();
+
+                if (count > 0)
+                {
+                    Console.WriteLine($"  åœ¨{frameName}ä¸­æ‰¾åˆ°æŒ‰é’®ï¼Œä½¿ç”¨é€‰æ‹©å™¨: {exactSelector}");
+                    return buttonLocator;
+                }
+
+                Console.WriteLine($"  åœ¨{frameName}ä¸­ä½¿ç”¨ç²¾ç¡®é€‰æ‹©å™¨æœªæ‰¾åˆ°ï¼Œå°è¯•å¤‡ç”¨é€‰æ‹©å™¨...");
+
+                // å¤‡ç”¨é€‰æ‹©å™¨
+                var backupSelectors = new[]
+                {
+                    "li.level1menu:has(a:has(span:text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º')))",
+                    "a:has(span:text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'))",
+                    "text=æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º",
+                    "a[onclick*='é¡¹ç›®æ‰§è¡Œæƒ…å†µæŸ¥è¯¢']",
+                    "a[onclick*='æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º']"
+                };
+
+                foreach (var selector in backupSelectors)
+                {
+                    try
+                    {
+                        buttonLocator = frame.Locator(selector);
+                        count = await buttonLocator.CountAsync();
+                        if (count > 0)
+                        {
+                            Console.WriteLine($"  åœ¨{frameName}ä¸­æ‰¾åˆ°æŒ‰é’®ï¼Œä½¿ç”¨é€‰æ‹©å™¨: {selector}");
+                            return buttonLocator;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  åœ¨{frameName}ä¸­ä½¿ç”¨é€‰æ‹©å™¨ {selector} å¤±è´¥: {ex.Message}");
+                    }
+                }
+
+                // å°è¯•æŸ¥æ‰¾åŒ…å«æ–‡æœ¬çš„æ‰€æœ‰å…ƒç´ 
+                Console.WriteLine($"  åœ¨{frameName}ä¸­å°è¯•æŸ¥æ‰¾åŒ…å«'æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'æ–‡æœ¬çš„æ‰€æœ‰å…ƒç´ ...");
+                var allElements = await frame.Locator("*:has-text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º')").AllAsync();
+                Console.WriteLine($"  åœ¨{frameName}ä¸­æ‰¾åˆ° {allElements.Count} ä¸ªåŒ…å«'æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º'æ–‡æœ¬çš„å…ƒç´ ");
+
+                foreach (var element in allElements)
+                {
+                    try
+                    {
+                        var tagName = await element.EvaluateAsync<string>("el => el.tagName.toLowerCase()");
+                        var isClickable = await element.EvaluateAsync<bool>("el => !!(el.onclick || el.getAttribute('href') || el.tagName.toLowerCase() === 'a')");
+                        
+                        Console.WriteLine($"    å…ƒç´ : æ ‡ç­¾={tagName}, å¯ç‚¹å‡»={isClickable}");
+                        
+                        if (isClickable)
+                        {
+                            // åˆ›å»ºä¸€ä¸ªå®šä½å™¨æ¥åŒ…è£…è¿™ä¸ªå…ƒç´ 
+                            var elementIndex = -1;
+                            for (int j = 0; j < allElements.Count; j++)
+                            {
+                                if (allElements[j] == element)
+                                {
+                                    elementIndex = j;
+                                    break;
+                                }
+                            }
+                            
+                            if (elementIndex >= 0)
+                            {
+                                var elementLocator = frame.Locator($"*:has-text('æ•°æ®æŸ¥è¯¢åŠå…¬ç¤º')").Nth(elementIndex);
+                                Console.WriteLine($"  åœ¨{frameName}ä¸­æ‰¾åˆ°å¯ç‚¹å‡»çš„æŒ‰é’®å…ƒç´ ");
+                                return elementLocator;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"    æ£€æŸ¥å…ƒç´ æ—¶å‡ºé”™: {ex.Message}");
+                    }
+                }
+
+                Console.WriteLine($"  åœ¨{frameName}ä¸­æœªæ‰¾åˆ°æŒ‰é’®");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  åœ¨{frameName}ä¸­æŸ¥æ‰¾æŒ‰é’®æ—¶å‡ºé”™: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// ç‚¹å‡»æŒ‰é’®
+        /// </summary>
+        private async Task<bool> ClickButton(ILocator buttonLocator, string pageName)
+        {
+            try
+            {
+                Console.WriteLine($"åœ¨{pageName}ä¸­æ‰¾åˆ°æŒ‰é’®ï¼Œå‡†å¤‡ç‚¹å‡»...");
+
+                // è·å–æŒ‰é’®æ–‡æœ¬ç”¨äºç¡®è®¤
+                var buttonText = await buttonLocator.TextContentAsync();
+                Console.WriteLine($"æŒ‰é’®æ–‡æœ¬: {buttonText?.Trim()}");
+
+                // ç‚¹å‡»æŒ‰é’®
+                await buttonLocator.ClickAsync(new LocatorClickOptions
+                {
+                    Timeout = 5000,
+                    Force = true
+                });
+
+                Console.WriteLine($"åœ¨{pageName}ä¸­ç‚¹å‡»æˆåŠŸï¼ç­‰å¾…é¡µé¢åŠ è½½...");
+                await Task.Delay(3000);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"åœ¨{pageName}ä¸­ç‚¹å‡»å¤±è´¥: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// æŸ¥æ‰¾é¡µé¢ä¸­çš„ç‰¹å®šä¿¡æ¯
         /// </summary>
         public async Task<Dictionary<string, string>> ExtractPageInfoAsync()
         {
@@ -382,132 +553,40 @@ namespace AutoFinan
             {
                 if (!isLoggedIn)
                 {
-                    Console.WriteLine("´íÎó£ºÉĞÎ´µÇÂ¼£¬ÇëÏÈÖ´ĞĞµÇÂ¼");
+                    Console.WriteLine("é”™è¯¯ï¼šå°šæœªç™»å½•ï¼Œè¯·å…ˆæ‰§è¡Œç™»å½•");
                     return new Dictionary<string, string>();
                 }
 
-                Console.WriteLine("¿ªÊ¼ÌáÈ¡Ò³ÃæĞÅÏ¢...");
+                Console.WriteLine("å¼€å§‹æå–é¡µé¢ä¿¡æ¯...");
                 var pageInfo = new Dictionary<string, string>();
 
-                // »ñÈ¡Ò³Ãæ±êÌâ
+                // è·å–é¡µé¢æ ‡é¢˜
                 var title = await page.TitleAsync();
-                pageInfo["Ò³Ãæ±êÌâ"] = title;
-                Console.WriteLine($"Ò³Ãæ±êÌâ: {title}");
+                pageInfo["é¡µé¢æ ‡é¢˜"] = title;
+                Console.WriteLine($"é¡µé¢æ ‡é¢˜: {title}");
 
-                // »ñÈ¡µ±Ç°URL
+                // è·å–å½“å‰URL
                 var currentUrl = page.Url;
-                pageInfo["µ±Ç°URL"] = currentUrl;
-                Console.WriteLine($"µ±Ç°URL: {currentUrl}");
+                pageInfo["å½“å‰URL"] = currentUrl;
+                Console.WriteLine($"å½“å‰URL: {currentUrl}");
 
-                // ²éÕÒ±í¸ñĞÅÏ¢
-                var tables = await page.Locator("table").AllAsync();
-                Console.WriteLine($"ÕÒµ½ {tables.Count} ¸ö±í¸ñ");
-
-                for (int i = 0; i < tables.Count; i++)
-                {
-                    try
-                    {
-                        var table = tables[i];
-                        var tableInfo = await ExtractTableInfoAsync(table, i + 1);
-                        foreach (var kvp in tableInfo)
-                        {
-                            pageInfo[$"±í¸ñ{i + 1}_{kvp.Key}"] = kvp.Value;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"ÌáÈ¡±í¸ñ {i + 1} ĞÅÏ¢Ê±³ö´í: {ex.Message}");
-                    }
-                }
-
-                // ²éÕÒÆäËûÖØÒªĞÅÏ¢
-                var importantElements = await page.Locator("h1, h2, h3, .title, .header, [class*='title'], [class*='header']").AllAsync();
-                foreach (var element in importantElements)
-                {
-                    try
-                    {
-                        var text = await element.TextContentAsync();
-                        if (!string.IsNullOrEmpty(text))
-                        {
-                            var cleanText = text.Trim();
-                            if (cleanText.Length > 0 && cleanText.Length < 100) // ÏŞÖÆ³¤¶È±ÜÃâ¹ı³¤
-                            {
-                                pageInfo[$"±êÌâ_{cleanText.Substring(0, Math.Min(20, cleanText.Length))}"] = cleanText;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"ÌáÈ¡±êÌâĞÅÏ¢Ê±³ö´í: {ex.Message}");
-                    }
-                }
-
-                Console.WriteLine($"³É¹¦ÌáÈ¡ {pageInfo.Count} ÌõÒ³ÃæĞÅÏ¢");
+                Console.WriteLine($"æˆåŠŸæå– {pageInfo.Count} æ¡é¡µé¢ä¿¡æ¯");
                 return pageInfo;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ÌáÈ¡Ò³ÃæĞÅÏ¢Ê§°Ü: {ex.Message}");
+                Console.WriteLine($"æå–é¡µé¢ä¿¡æ¯å¤±è´¥: {ex.Message}");
                 return new Dictionary<string, string>();
             }
         }
 
         /// <summary>
-        /// ÌáÈ¡±í¸ñĞÅÏ¢
-        /// </summary>
-        private async Task<Dictionary<string, string>> ExtractTableInfoAsync(ILocator table, int tableIndex)
-        {
-            var tableInfo = new Dictionary<string, string>();
-
-            try
-            {
-                // »ñÈ¡±í¸ñĞĞÊı
-                var rows = await table.Locator("tr").AllAsync();
-                tableInfo[$"ĞĞÊı"] = rows.Count.ToString();
-
-                // »ñÈ¡±í¸ñÁĞÊı£¨ÒÔµÚÒ»ĞĞÎª×¼£©
-                if (rows.Count > 0)
-                {
-                    var firstRowCells = await rows[0].Locator("td, th").AllAsync();
-                    tableInfo[$"ÁĞÊı"] = firstRowCells.Count.ToString();
-                }
-
-                // ÌáÈ¡±í¸ñÄÚÈİ£¨Ç°¼¸ĞĞ£©
-                var maxRowsToExtract = Math.Min(5, rows.Count); // ×î¶àÌáÈ¡5ĞĞ
-                for (int i = 0; i < maxRowsToExtract; i++)
-                {
-                    var cells = await rows[i].Locator("td, th").AllAsync();
-                    var rowData = new List<string>();
-
-                    foreach (var cell in cells)
-                    {
-                        var cellText = await cell.TextContentAsync();
-                        rowData.Add(cellText?.Trim() ?? "");
-                    }
-
-                    if (rowData.Any(x => !string.IsNullOrEmpty(x)))
-                    {
-                        tableInfo[$"ĞĞ{i + 1}"] = string.Join(" | ", rowData);
-                    }
-                }
-
-                Console.WriteLine($"±í¸ñ {tableIndex} ĞÅÏ¢ÌáÈ¡Íê³É");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"ÌáÈ¡±í¸ñ {tableIndex} ĞÅÏ¢Ê±³ö´í: {ex.Message}");
-            }
-
-            return tableInfo;
-        }
-
-        /// <summary>
-        /// µÈ´ıÓÃ»§²Ù×÷Íê³É
+        /// ç­‰å¾…ç”¨æˆ·æ“ä½œå®Œæˆ
         /// </summary>
         public async Task WaitForUserOperationAsync()
         {
-            Console.WriteLine("µÈ´ıÓÃ»§²Ù×÷Íê³É...");
-            Console.WriteLine("°´»Ø³µ¼ü¼ÌĞø³ÌĞòÖ´ĞĞ...");
+            Console.WriteLine("ç­‰å¾…ç”¨æˆ·æ“ä½œå®Œæˆ...");
+            Console.WriteLine("æŒ‰å›è½¦é”®ç»§ç»­ç¨‹åºæ‰§è¡Œ...");
 
             try
             {
@@ -515,12 +594,12 @@ namespace AutoFinan
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"µÈ´ıÓÃ»§ÊäÈëÊ±³ö´í: {ex.Message}");
+                Console.WriteLine($"ç­‰å¾…ç”¨æˆ·è¾“å…¥æ—¶å‡ºé”™: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// ¹Ø±Õä¯ÀÀÆ÷
+        /// å…³é—­æµè§ˆå™¨
         /// </summary>
         public async Task CloseAsync()
         {
@@ -529,28 +608,28 @@ namespace AutoFinan
                 if (browser != null)
                 {
                     await browser.CloseAsync();
-                    Console.WriteLine("ä¯ÀÀÆ÷ÒÑ¹Ø±Õ");
+                    Console.WriteLine("æµè§ˆå™¨å·²å…³é—­");
                 }
 
                 if (playwright != null)
                 {
                     playwright.Dispose();
-                    Console.WriteLine("Playwright×ÊÔ´ÒÑÊÍ·Å");
+                    Console.WriteLine("Playwrightèµ„æºå·²é‡Šæ”¾");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"¹Ø±Õ×ÊÔ´Ê±³ö´í: {ex.Message}");
+                Console.WriteLine($"å…³é—­èµ„æºæ—¶å‡ºé”™: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// ¼ì²éµÇÂ¼×´Ì¬
+        /// æ£€æŸ¥ç™»å½•çŠ¶æ€
         /// </summary>
         public bool IsLoggedIn => isLoggedIn;
 
         /// <summary>
-        /// »ñÈ¡µ±Ç°Ò³Ãæ¶ÔÏó£¨¹©Íâ²¿Ê¹ÓÃ£©
+        /// è·å–å½“å‰é¡µé¢å¯¹è±¡ï¼ˆä¾›å¤–éƒ¨ä½¿ç”¨ï¼‰
         /// </summary>
         public IPage CurrentPage => page;
     }
