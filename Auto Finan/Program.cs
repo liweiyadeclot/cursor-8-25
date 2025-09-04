@@ -346,13 +346,13 @@ namespace AutoFinan
 
                     // 第二层循环：从左至右，处理当前行的每个单元格
                     Console.WriteLine($"开始第二层循环：处理第 {row} 行的单元格");
+                    bool isThisLineHasBeenHandled = false;
 
                     for (int col = 1; col <= colCount; col++)
                     {
                         var cellValue = worksheet.Cells[row, col].Value?.ToString() ?? "";
                         var columnName = GetColumnName(col);
                         var headerName = headers[col - 1];
-
                         Console.WriteLine($"  读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
 
                         // 检查是否遇到子序列开始标记
@@ -408,13 +408,19 @@ namespace AutoFinan
                         {
                             if(headerName == "预约单状态" && cellValue == "已预约")
                             {
+                                Console.WriteLine($"第 {row} 行数据已预约，跳过");
+                                row = GetNextLogicalRow(row, worksheet) - 1;
+                                Console.WriteLine($"跳转到第{row}行");
+                                isThisLineHasBeenHandled = true;
                                 break;
                             }
                             await ProcessCell(columnName, row, headerName, cellValue);
                         }
                     }
-
+                    //if (isThisLineHasBeenHandled)
+                    //    break;
                     Console.WriteLine($"第 {row} 行数据处理完成");
+
                 }
 
                 Console.WriteLine("\n=== 所有数据处理完成 ===");
@@ -445,6 +451,26 @@ namespace AutoFinan
             }
         }
 
+        private int GetNextLogicalRow(int currentRow, ExcelWorksheet workSheet)
+        {
+            int logicIDColNum = 0;
+            for(int i = 1; i <= (workSheet.Dimension?.Columns ?? 0); i++)
+            {
+                string head = workSheet.Cells[1, i].Text;
+                if (head == "序号")
+                    logicIDColNum = i;
+            }
+
+            for(int i = currentRow; i <= (workSheet.Dimension?.Rows ?? 0); i++)
+            {
+                if (workSheet.Cells[i, logicIDColNum].Text != workSheet.Cells[currentRow, logicIDColNum].Text)
+                {
+                    return i;
+                }
+            }
+
+            return 0;
+        }
         private async Task LoadTitleIdMapping(string excelFilePath)
         {
             Console.WriteLine("开始加载标题-ID映射表...");
