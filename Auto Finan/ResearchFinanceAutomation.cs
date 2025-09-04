@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using OfficeOpenXml;
 using System.IO;
+using System.Text.Json;
 
 namespace AutoFinan
 {
@@ -704,19 +705,48 @@ namespace AutoFinan
                         return new List<string>();
                     }
 
-                    // 读取项目编号数据
-                    var projectNumbers = new List<string>();
-                    var maxRows = worksheet.Dimension?.Rows ?? 0;
-                    
-                    for (int row = 2; row <= maxRows; row++) // 从第2行开始（跳过标题行）
-                    {
-                        var cellValue = worksheet.Cells[row, projectNumberColumn].Value?.ToString()?.Trim();
-                        if (!string.IsNullOrEmpty(cellValue))
-                        {
-                            projectNumbers.Add(cellValue);
-                            Console.WriteLine($"读取到项目编号: {cellValue}");
-                        }
-                    }
+                                         // 查找"预算执行是否需要更新"列
+                     var updateColumn = -1;
+                     for (int col = 1; col <= maxColumns; col++)
+                     {
+                         var headerValue = worksheet.Cells[1, col].Value?.ToString()?.Trim();
+                         if (headerValue == "预算执行是否需要更新")
+                         {
+                             updateColumn = col;
+                             Console.WriteLine($"找到'预算执行是否需要更新'列，位于第{col}列");
+                             break;
+                         }
+                     }
+
+                     if (updateColumn == -1)
+                     {
+                         Console.WriteLine("错误：未找到'预算执行是否需要更新'列");
+                         return new List<string>();
+                     }
+
+                     // 读取项目编号数据，只包含需要更新的项目
+                     var projectNumbers = new List<string>();
+                     var maxRows = worksheet.Dimension?.Rows ?? 0;
+                     
+                     for (int row = 2; row <= maxRows; row++) // 从第2行开始（跳过标题行）
+                     {
+                         var cellValue = worksheet.Cells[row, projectNumberColumn].Value?.ToString()?.Trim();
+                         var updateValue = worksheet.Cells[row, updateColumn].Value?.ToString()?.Trim();
+                         
+                         if (!string.IsNullOrEmpty(cellValue))
+                         {
+                             // 检查是否需要更新
+                             if (updateValue == "是")
+                             {
+                                 projectNumbers.Add(cellValue);
+                                 Console.WriteLine($"读取到项目编号: {cellValue} (需要更新)");
+                             }
+                             else
+                             {
+                                 Console.WriteLine($"跳过项目编号: {cellValue} (不需要更新，值为: {updateValue})");
+                             }
+                         }
+                     }
 
                     Console.WriteLine($"成功读取到 {projectNumbers.Count} 个项目编号");
                     return projectNumbers;
@@ -979,7 +1009,8 @@ namespace AutoFinan
         /// <summary>
         /// 等待表格数据加载并点击第一行第二列
         /// </summary>
-        private async Task WaitForTableAndClickFirstRow()
+        /// <returns>true表示成功找到数据并点击，false表示未找到数据</returns>
+        private async Task<bool> WaitForTableAndClickFirstRow()
         {
             try
             {
@@ -990,7 +1021,7 @@ namespace AutoFinan
                 if (tableLocator == null)
                 {
                     Console.WriteLine("警告：未找到表格，跳过点击操作");
-                    return;
+                    return false;
                 }
                 
                 // 等待表格有数据行（不是只有表头）
@@ -1026,7 +1057,7 @@ namespace AutoFinan
                 if (!hasDataRows)
                 {
                     Console.WriteLine("警告：表格数据行加载超时，跳过点击操作");
-                    return;
+                    return false;
                 }
                 
                 // 点击第一行第二列
@@ -1084,6 +1115,7 @@ namespace AutoFinan
                         
                         // 等待跳转完成
                         await Task.Delay(2000);
+                        return true;
                     }
                     else
                     {
@@ -1115,17 +1147,20 @@ namespace AutoFinan
                         {
                             Console.WriteLine($"调试信息获取失败: {debugEx.Message}");
                         }
+                        return false;
                     }
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"点击第一行第二列时出错: {ex.Message}");
+                    return false;
                 }
                 
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"等待表格并点击第一行时出错: {ex.Message}");
+                return false;
             }
         }
 
@@ -1186,10 +1221,401 @@ namespace AutoFinan
             }
         }
 
-        /// <summary>
-        /// 自动搜索项目编号
+                 /// <summary>
+         /// 在当前页面中查找并点击"预算情况"按钮
+         /// </summary>
+         private async Task ClickBudgetButtonInCurrentPage()
+         {
+             try
+             {
+                 Console.WriteLine("在当前页面中查找'预算情况'按钮...");
+                 
+                 // 等待页面完全加载
+                 await Task.Delay(2000);
+                 
+                 // 首先在主页面查找
+                 Console.WriteLine("1. 在主页面查找'预算情况'按钮...");
+                 var mainPageLocator = page.Locator("a:has(span:text('预算情况'))");
+                 var mainPageCount = await mainPageLocator.CountAsync();
+                 
+                 if (mainPageCount > 0)
+                 {
+                     Console.WriteLine("在主页面中找到'预算情况'按钮");
+                     await mainPageLocator.ClickAsync();
+                     Console.WriteLine("成功点击'预算情况'按钮");
+                     return;
+                 }
+                 
+                 // 如果主页面没找到，在所有iframe中查找
+                 Console.WriteLine("2. 在所有iframe中查找'预算情况'按钮...");
+                 var frames = page.Frames;
+                 Console.WriteLine($"找到 {frames.Count} 个iframe");
+                 
+                 for (int i = 0; i < frames.Count; i++)
+                 {
+                     var frame = frames[i];
+                     Console.WriteLine($"检查iframe {i + 1}: {frame.Name ?? "未命名"} - {frame.Url}");
+                     
+                     try
+                     {
+                         // 使用多种选择器查找按钮
+                         var selectors = new[]
+                         {
+                             "a:has(span:text('预算情况'))",
+                             "a[href*='wgPager_WF_KY_7942d100001_2']",
+                             "a[innerwinno='16171d100001']",
+                             "text=预算情况",
+                             "ul#wg_ul_WF_KY_7942d100001 li:has(a:has(span:text('预算情况')))",
+                             "li:has(a:has(span:text('预算情况')))"
+                         };
+                         
+                         foreach (var selector in selectors)
+                         {
+                             try
+                             {
+                                 var frameLocator = frame.Locator(selector);
+                                 var frameCount = await frameLocator.CountAsync();
+                                 
+                                 if (frameCount > 0)
+                                 {
+                                     Console.WriteLine($"在iframe {i + 1} 中找到'预算情况'按钮，使用选择器: {selector}");
+                                     
+                                     // 获取按钮信息用于确认
+                                     var buttonText = await frameLocator.TextContentAsync();
+                                     var buttonHref = await frameLocator.GetAttributeAsync("href");
+                                     Console.WriteLine($"按钮文本: {buttonText?.Trim()}, 链接: {buttonHref}");
+                                     
+                                     // 点击按钮
+                                     await frameLocator.ClickAsync();
+                                     Console.WriteLine($"在iframe {i + 1} 中成功点击'预算情况'按钮");
+                                     
+                                     // 等待点击响应
+                                     await Task.Delay(2000);
+                                     return;
+                                 }
+                             }
+                             catch (Exception ex)
+                             {
+                                 Console.WriteLine($"在iframe {i + 1} 中使用选择器 {selector} 失败: {ex.Message}");
+                             }
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"检查iframe {i + 1} 时出错: {ex.Message}");
+                     }
+                 }
+                 
+                 Console.WriteLine("警告：在所有iframe中都未找到'预算情况'按钮");
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"查找并点击'预算情况'按钮时出错: {ex.Message}");
+             }
+         }
+         
+                 /// <summary>
+        /// 在当前页面中查找并点击"当前执行预算"按钮
         /// </summary>
-        private async Task AutoSearchProjectNumbers(List<string> projectNumbers)
+        private async Task ClickCurrentExecutionBudgetButton(string currentProjectNumber = null)
+         {
+             try
+             {
+                 Console.WriteLine("在当前页面中查找'当前执行预算'按钮...");
+                 
+                 // 等待页面完全加载
+                 await Task.Delay(2000);
+                 
+                 // 首先在主页面查找
+                 Console.WriteLine("1. 在主页面查找'当前执行预算'按钮...");
+                 var mainPageLocator = page.Locator("a:has(span:text('当前执行预算'))");
+                 var mainPageCount = await mainPageLocator.CountAsync();
+                 
+                 if (mainPageCount > 0)
+                 {
+                     Console.WriteLine("在主页面中找到'当前执行预算'按钮");
+                     await mainPageLocator.ClickAsync();
+                     Console.WriteLine("成功点击'当前执行预算'按钮");
+                     
+                     // 等待点击响应
+                     await Task.Delay(2000);
+                     
+                     // 等待10秒后开始提取表格数据
+                     Console.WriteLine("等待10秒后开始提取表格数据...");
+                     await Task.Delay(10000);
+                     
+                     // 提取表格数据并写入Excel
+                     await ExtractTableDataAndWriteToExcel(currentProjectNumber);
+                     
+                     // 点击关闭按钮
+                     await ClickCloseButton();
+                     
+                     return;
+                 }
+                 
+                 // 如果主页面没找到，在所有iframe中查找
+                 Console.WriteLine("2. 在所有iframe中查找'当前执行预算'按钮...");
+                 var frames = page.Frames;
+                 Console.WriteLine($"找到 {frames.Count} 个iframe");
+                 
+                 for (int i = 0; i < frames.Count; i++)
+                 {
+                     var frame = frames[i];
+                     Console.WriteLine($"检查iframe {i + 1}: {frame.Name ?? "未命名"} - {frame.Url}");
+                     
+                     try
+                     {
+                         // 使用多种选择器查找按钮
+                         var selectors = new[]
+                         {
+                             "a:has(span:text('当前执行预算'))",
+                             "a[href*='wgPager_WF_KY_11107d100001_1']",
+                             "a[innerwinno='12799d100001']",
+                             "text=当前执行预算",
+                             "ul#wg_ul_WF_KY_11107d100001 li:has(a:has(span:text('当前执行预算')))",
+                             "li:has(a:has(span:text('当前执行预算')))"
+                         };
+                         
+                         foreach (var selector in selectors)
+                         {
+                             try
+                             {
+                                 var frameLocator = frame.Locator(selector);
+                                 var frameCount = await frameLocator.CountAsync();
+                                 
+                                 if (frameCount > 0)
+                                 {
+                                     Console.WriteLine($"在iframe {i + 1} 中找到'当前执行预算'按钮，使用选择器: {selector}");
+                                     
+                                     // 获取按钮信息用于确认
+                                     var buttonText = await frameLocator.TextContentAsync();
+                                     var buttonHref = await frameLocator.GetAttributeAsync("href");
+                                     Console.WriteLine($"按钮文本: {buttonText?.Trim()}, 链接: {buttonHref}");
+                                     
+                                     // 点击按钮
+                                     await frameLocator.ClickAsync();
+                                     Console.WriteLine($"在iframe {i + 1} 中成功点击'当前执行预算'按钮");
+                                     
+                                     // 等待点击响应
+                                     await Task.Delay(2000);
+                                     
+                                     // 等待10秒后开始提取表格数据
+                                     Console.WriteLine("等待10秒后开始提取表格数据...");
+                                     await Task.Delay(10000);
+                                     
+                                     // 提取表格数据并写入Excel
+                                     await ExtractTableDataAndWriteToExcel(currentProjectNumber);
+                                     
+                                     // 点击关闭按钮
+                                     await ClickCloseButton();
+                                     
+                                     return;
+                                 }
+                             }
+                             catch (Exception ex)
+                             {
+                                 Console.WriteLine($"在iframe {i + 1} 中使用选择器 {selector} 失败: {ex.Message}");
+                             }
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"检查iframe {i + 1} 时出错: {ex.Message}");
+                     }
+                 }
+                 
+                 Console.WriteLine("警告：在所有iframe中都未找到'当前执行预算'按钮");
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"查找并点击'当前执行预算'按钮时出错: {ex.Message}");
+             }
+         }
+         
+         /// <summary>
+         /// 点击关闭按钮
+         /// </summary>
+         private async Task ClickCloseButton()
+         {
+             try
+             {
+                 Console.WriteLine("正在查找'关闭'按钮...");
+                 
+                 // 等待页面完全加载
+                 await Task.Delay(1000);
+                 
+                 // 首先在主页面查找
+                 Console.WriteLine("1. 在主页面查找'关闭'按钮...");
+                 var mainPageLocator = page.Locator("button:has(span:text('关闭'))");
+                 var mainPageCount = await mainPageLocator.CountAsync();
+                 
+                 if (mainPageCount > 0)
+                 {
+                     Console.WriteLine("在主页面中找到'关闭'按钮");
+                     await mainPageLocator.ClickAsync();
+                     Console.WriteLine("成功点击'关闭'按钮");
+                     return;
+                 }
+                 
+                 // 如果主页面没找到，在所有iframe中查找
+                 Console.WriteLine("2. 在所有iframe中查找'关闭'按钮...");
+                 var frames = page.Frames;
+                 Console.WriteLine($"找到 {frames.Count} 个iframe");
+                 
+                 for (int i = 0; i < frames.Count; i++)
+                 {
+                     var frame = frames[i];
+                     Console.WriteLine($"检查iframe {i + 1}: {frame.Name ?? "未命名"} - {frame.Url}");
+                     
+                     try
+                     {
+                         // 使用多种选择器查找按钮
+                         var selectors = new[]
+                         {
+                             "button:has(span:text('关闭'))",
+                             "button.ui-button:has(span.ui-button-text:text('关闭'))",
+                             "button[class*='ui-button']:has(span:text('关闭'))",
+                             "text=关闭"
+                         };
+                         
+                         foreach (var selector in selectors)
+                         {
+                             try
+                             {
+                                 var frameLocator = frame.Locator(selector);
+                                 var frameCount = await frameLocator.CountAsync();
+                                 
+                                 if (frameCount > 0)
+                                 {
+                                     Console.WriteLine($"在iframe {i + 1} 中找到'关闭'按钮，使用选择器: {selector}");
+                                     
+                                     // 获取按钮信息用于确认
+                                     var buttonText = await frameLocator.TextContentAsync();
+                                     Console.WriteLine($"按钮文本: {buttonText?.Trim()}");
+                                     
+                                     // 点击按钮
+                                     await frameLocator.ClickAsync();
+                                     Console.WriteLine($"在iframe {i + 1} 中成功点击'关闭'按钮");
+                                     
+                                     // 等待点击响应
+                                     await Task.Delay(1000);
+                                     return;
+                                 }
+                             }
+                             catch (Exception ex)
+                             {
+                                 Console.WriteLine($"在iframe {i + 1} 中使用选择器 {selector} 失败: {ex.Message}");
+                             }
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"检查iframe {i + 1} 时出错: {ex.Message}");
+                     }
+                 }
+                 
+                 Console.WriteLine("警告：在所有iframe中都未找到'关闭'按钮");
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"查找并点击'关闭'按钮时出错: {ex.Message}");
+             }
+         }
+         
+         /// <summary>
+         /// 在指定页面中查找并点击"预算情况"按钮（已废弃，保留供参考）
+         /// </summary>
+         private async Task<bool> ClickBudgetButtonInPage(IPage targetPage)
+         {
+             try
+             {
+                 Console.WriteLine("正在查找'预算情况'按钮...");
+                 
+                 // 首先在主页面查找
+                 Console.WriteLine("1. 在主页面查找'预算情况'按钮...");
+                 var mainPageLocator = targetPage.Locator("a:has(span:text('预算情况'))");
+                 var mainPageCount = await mainPageLocator.CountAsync();
+                 
+                 if (mainPageCount > 0)
+                 {
+                     Console.WriteLine("在主页面中找到'预算情况'按钮");
+                     await mainPageLocator.ClickAsync();
+                     Console.WriteLine("成功点击'预算情况'按钮");
+                     return true;
+                 }
+                 
+                 // 如果主页面没找到，在所有iframe中查找
+                 Console.WriteLine("2. 在所有iframe中查找'预算情况'按钮...");
+                 var frames = targetPage.Frames;
+                 Console.WriteLine($"找到 {frames.Count} 个iframe");
+                 
+                 for (int i = 0; i < frames.Count; i++)
+                 {
+                     var frame = frames[i];
+                     Console.WriteLine($"检查iframe {i + 1}: {frame.Name ?? "未命名"} - {frame.Url}");
+                     
+                     try
+                     {
+                         // 使用多种选择器查找按钮
+                         var selectors = new[]
+                         {
+                             "a:has(span:text('预算情况'))",
+                             "a[href*='wgPager_WF_KY_7942d100001_2']",
+                             "a[innerwinno='16171d100001']",
+                             "text=预算情况"
+                         };
+                         
+                         foreach (var selector in selectors)
+                         {
+                             try
+                             {
+                                 var frameLocator = frame.Locator(selector);
+                                 var frameCount = await frameLocator.CountAsync();
+                                 
+                                 if (frameCount > 0)
+                                 {
+                                     Console.WriteLine($"在iframe {i + 1} 中找到'预算情况'按钮，使用选择器: {selector}");
+                                     
+                                     // 获取按钮信息用于确认
+                                     var buttonText = await frameLocator.TextContentAsync();
+                                     var buttonHref = await frameLocator.GetAttributeAsync("href");
+                                     Console.WriteLine($"按钮文本: {buttonText?.Trim()}, 链接: {buttonHref}");
+                                     
+                                     // 点击按钮
+                                     await frameLocator.ClickAsync();
+                                     Console.WriteLine($"在iframe {i + 1} 中成功点击'预算情况'按钮");
+                                     
+                                     // 等待点击响应
+                                     await Task.Delay(2000);
+                                     return true;
+                                 }
+                             }
+                             catch (Exception ex)
+                             {
+                                 Console.WriteLine($"在iframe {i + 1} 中使用选择器 {selector} 失败: {ex.Message}");
+                             }
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"检查iframe {i + 1} 时出错: {ex.Message}");
+                     }
+                 }
+                 
+                 Console.WriteLine("在所有iframe中都未找到'预算情况'按钮");
+                 return false;
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"查找并点击'预算情况'按钮时出错: {ex.Message}");
+                 return false;
+             }
+         }
+         
+         /// <summary>
+         /// 自动搜索项目编号
+         /// </summary>
+         private async Task AutoSearchProjectNumbers(List<string> projectNumbers)
         {
             try
             {
@@ -1240,17 +1666,34 @@ namespace AutoFinan
                         await searchInputLocator.PressAsync("Enter");
                         Console.WriteLine("已按回车键，开始搜索...");
                         
-                        // 等待搜索结果加载
-                        await Task.Delay(2000);
-                        
-                        // 等待表格数据加载并点击第一行第二列
-                        await WaitForTableAndClickFirstRow();
-                        
-                        processedCount++;
-                        Console.WriteLine($"项目编号 {projectNumber} 搜索完成");
-                        
-                        // 在搜索下一个项目前稍作等待
-                        await Task.Delay(1000);
+                                                 // 等待搜索结果加载
+                         await Task.Delay(2000);
+                         
+                         // 等待表格数据加载并点击第一行第二列
+                         var tableFound = await WaitForTableAndClickFirstRow();
+                         
+                         //if (!tableFound)
+                         //{
+                         //    // 如果未找到表格数据，直接填写"未查询到"
+                         //    Console.WriteLine($"项目编号 {projectNumber} 未查询到数据，填写'未查询到'");
+                         //    await WriteNotFoundToExcel(projectNumber);
+                         //    processedCount++;
+                         //    continue;
+                         //}
+                         
+                         // 等待页面加载完成后，在当前页面中查找并点击"预算情况"按钮
+                         await Task.Delay(3000); // 等待页面完全加载
+                         await ClickBudgetButtonInCurrentPage();
+                         
+                         // 等待页面加载完成后，在当前页面中查找并点击"当前执行预算"按钮
+                         await Task.Delay(3000); // 等待页面完全加载
+                         await ClickCurrentExecutionBudgetButton(projectNumber);
+                         
+                         processedCount++;
+                         Console.WriteLine($"项目编号 {projectNumber} 搜索完成");
+                         
+                         // 在搜索下一个项目前稍作等待
+                         await Task.Delay(1000);
                         
                     }
                     catch (Exception ex)
@@ -1270,5 +1713,527 @@ namespace AutoFinan
                 Console.WriteLine($"自动搜索项目编号时出错: {ex.Message}");
             }
         }
-    }
+        
+        /// <summary>
+        /// 提取表格数据并写入Excel
+        /// </summary>
+        private async Task ExtractTableDataAndWriteToExcel(string currentProjectNumber = null)
+        {
+            try
+            {
+                Console.WriteLine("开始提取表格数据...");
+                
+                // 查找表格 - 先在主页面查找，然后在iframe中查找
+                var (tableData, projectBalance) = await FindAndExtractTableData();
+                if (tableData == null || !tableData.Any())
+                {
+                    Console.WriteLine("警告：未找到表格数据或表格为空");
+                    return;
+                }
+                
+                // 将提取的数据写入Excel
+                await WriteTableDataToExcel(tableData, projectBalance, currentProjectNumber);
+                
+                Console.WriteLine("表格数据提取和写入Excel完成");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"提取表格数据时出错: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 查找并提取表格数据
+        /// </summary>
+        private async Task<(List<(string budgetItem, string balance)> details, string projectBalance)> FindAndExtractTableData()
+        {
+            try
+            {
+                Console.WriteLine("查找表格 #gridWF_KY_7944d100001...");
+                
+                // 首先在主页面查找
+                var mainPageTable = page.Locator("#gridWF_KY_7944d100001");
+                var mainPageCount = await mainPageTable.CountAsync();
+                
+                if (mainPageCount > 0)
+                {
+                    Console.WriteLine("在主页面中找到表格");
+                    return await ExtractDataFromTable(mainPageTable);
+                }
+                
+                // 如果主页面没找到，在所有iframe中查找
+                Console.WriteLine("在主页面中未找到表格，在所有iframe中查找...");
+                var frames = page.Frames;
+                Console.WriteLine($"找到 {frames.Count} 个iframe");
+                
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    var frame = frames[i];
+                    Console.WriteLine($"检查iframe {i + 1}: {frame.Name ?? "未命名"} - {frame.Url}");
+                    
+                    try
+                    {
+                        // 使用多种选择器查找表格
+                        var selectors = new[]
+                        {
+                            "#gridWF_KY_7944d100001",
+                            "#gview_gridWF_KY_7944d100001",
+                            "table[id*='gridWF_KY_7944d100001']"
+                        };
+                        
+                        foreach (var selector in selectors)
+                        {
+                            try
+                            {
+                                var frameTable = frame.Locator(selector);
+                                var frameCount = await frameTable.CountAsync();
+                                
+                                if (frameCount > 0)
+                                {
+                                    Console.WriteLine($"在iframe {i + 1} 中找到表格，使用选择器: {selector}");
+                                    return await ExtractDataFromTable(frameTable);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"在iframe {i + 1} 中使用选择器 {selector} 失败: {ex.Message}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"检查iframe {i + 1} 时出错: {ex.Message}");
+                    }
+                }
+                
+                Console.WriteLine("警告：在所有iframe中都未找到表格");
+                return (null, "");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"查找表格时出错: {ex.Message}");
+                return (null, "");
+            }
+        }
+        
+        /// <summary>
+        /// 从表格中提取数据
+        /// </summary>
+        private async Task<(List<(string budgetItem, string balance)> details, string projectBalance)> ExtractDataFromTable(ILocator tableLocator)
+        {
+            try
+            {
+                Console.WriteLine("开始从表格中提取数据...");
+                
+                // 等待表格数据加载
+                await Task.Delay(2000);
+                
+                // 查找所有数据行（排除表头）
+                var dataRows = tableLocator.Locator("tbody tr:not(.jqgfirstrow)");
+                var rowCount = await dataRows.CountAsync();
+                
+                Console.WriteLine($"找到 {rowCount} 行数据");
+                
+                if (rowCount == 0)
+                {
+                    Console.WriteLine("表格中没有数据行");
+                    return (new List<(string budgetItem, string balance)>(), "");
+                }
+                
+                var extractedData = new List<(string budgetItem, string balance)>();
+                string projectBalance = "";
+                
+                // 遍历每一行数据
+                for (int i = 0; i < rowCount; i++)
+                {
+                    try
+                    {
+                        var row = dataRows.Nth(i);
+                        
+                        // 查找预算项列和余额列
+                        // 根据用户提供的HTML，预算项是第二列，余额是第十一列
+                        var budgetItemCell = row.Locator("td:nth-child(2)");
+                        var balanceCell = row.Locator("td:nth-child(11)");
+                        
+                        var budgetItem = await budgetItemCell.TextContentAsync();
+                        var balance = await balanceCell.TextContentAsync();
+                        
+                        if (!string.IsNullOrWhiteSpace(budgetItem) && !string.IsNullOrWhiteSpace(balance))
+                        {
+                            budgetItem = budgetItem.Trim();
+                            balance = balance.Trim();
+                            
+                            // 对于第一行数据，直接作为项目余额
+                            if (i == 0)
+                            {
+                                projectBalance = balance;
+                                Console.WriteLine($"第一行余额作为项目余额: {projectBalance}");
+                            }
+                            
+                            // 只提取余额不为0的项目
+                            if (balance != "0" && balance != "0.00" && balance != "0.0")
+                            {
+                                extractedData.Add((budgetItem, balance));
+                                Console.WriteLine($"提取数据: 预算项={budgetItem}, 余额={balance}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"跳过余额为0的项目: 预算项={budgetItem}, 余额={balance}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"提取第 {i + 1} 行数据时出错: {ex.Message}");
+                    }
+                }
+                
+                Console.WriteLine($"成功提取 {extractedData.Count} 条明细数据");
+                if (!string.IsNullOrEmpty(projectBalance))
+                {
+                    Console.WriteLine($"项目余额: {projectBalance}");
+                }
+                
+                return (extractedData, projectBalance);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"从表格中提取数据时出错: {ex.Message}");
+                return (new List<(string budgetItem, string balance)>(), "");
+            }
+        }
+        
+        /// <summary>
+        /// 将表格数据写入Excel
+        /// </summary>
+        private async Task WriteTableDataToExcel(List<(string budgetItem, string balance)> tableData, string projectBalance, string currentProjectNumber = null)
+        {
+            try
+            {
+                Console.WriteLine("开始将表格数据写入Excel...");
+                
+                // 读取配置文件
+                var configPath = FindConfigFile();
+                if (string.IsNullOrEmpty(configPath))
+                {
+                    Console.WriteLine("错误：未找到配置文件");
+                    return;
+                }
+                
+                var configContent = await File.ReadAllTextAsync(configPath);
+                var jsonOptions = new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                var config = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(configContent, jsonOptions);
+                
+                if (config == null || !config.ContainsKey("ExcelFilePath"))
+                {
+                    Console.WriteLine("错误：配置文件中未找到ExcelFilePath");
+                    return;
+                }
+                
+                var excelFilePath = config["ExcelFilePath"]?.ToString();
+                if (string.IsNullOrEmpty(excelFilePath))
+                {
+                    Console.WriteLine("错误：ExcelFilePath为空");
+                    return;
+                }
+                
+                // 查找Excel文件
+                var actualExcelPath = FindExcelFile(excelFilePath);
+                if (string.IsNullOrEmpty(actualExcelPath))
+                {
+                    Console.WriteLine($"错误：Excel文件不存在: {excelFilePath}");
+                    return;
+                }
+                
+                Console.WriteLine($"找到Excel文件: {actualExcelPath}");
+                
+                // 打开Excel文件
+                using (var package = new ExcelPackage(new FileInfo(actualExcelPath)))
+                {
+                    var worksheet = package.Workbook.Worksheets["0-Proj信息"];
+                    if (worksheet == null)
+                    {
+                        Console.WriteLine("错误：未找到工作表 '0-Proj信息'");
+                        return;
+                    }
+                    
+                                         // 查找"项目预算执行情况"列
+                     var budgetColumnIndex = -1;
+                     var balanceColumnIndex = -1;
+                     var headers = worksheet.Cells[1, 1, 1, worksheet.Dimension.End.Column];
+                     
+                     for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                     {
+                         var headerValue = worksheet.Cells[1, col].Value?.ToString();
+                         if (headerValue == "项目预算执行情况")
+                         {
+                             budgetColumnIndex = col;
+                         }
+                         else if (headerValue == "项目余额")
+                         {
+                             balanceColumnIndex = col;
+                         }
+                     }
+                     
+                     if (budgetColumnIndex == -1)
+                     {
+                         Console.WriteLine("错误：未找到'项目预算执行情况'列");
+                         return;
+                     }
+                     
+                     if (balanceColumnIndex == -1)
+                     {
+                         Console.WriteLine("警告：未找到'项目余额'列，将不会填写余额信息");
+                     }
+                     
+                     Console.WriteLine($"找到'项目预算执行情况'列，列索引: {budgetColumnIndex}");
+                     if (balanceColumnIndex != -1)
+                     {
+                         Console.WriteLine($"找到'项目余额'列，列索引: {balanceColumnIndex}");
+                     }
+                    
+                    // 查找当前项目编号对应的行
+                    var targetRow = -1;
+                    
+                    if (!string.IsNullOrEmpty(currentProjectNumber))
+                    {
+                        // 查找"项目编号"列
+                        var projectNumberColumnIndex = -1;
+                        for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                        {
+                            var headerValue = worksheet.Cells[1, col].Value?.ToString();
+                            if (headerValue == "项目编号")
+                            {
+                                projectNumberColumnIndex = col;
+                                break;
+                            }
+                        }
+                        
+                        if (projectNumberColumnIndex != -1)
+                        {
+                            // 在项目编号列中查找当前项目编号
+                            for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
+                            {
+                                var cellValue = worksheet.Cells[row, projectNumberColumnIndex].Value?.ToString();
+                                if (cellValue == currentProjectNumber)
+                                {
+                                    targetRow = row;
+                                    Console.WriteLine($"找到项目编号 {currentProjectNumber} 对应的行: {row}");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                                         // 如果没找到对应行，报告错误并跳过
+                     if (targetRow == -1)
+                     {
+                         Console.WriteLine($"错误：未找到项目编号 {currentProjectNumber} 对应的行，跳过数据写入");
+                         return;
+                     }
+                    
+                                                              // 格式化数据为"预算项: 余额"的形式，每个项目后面加换行符
+                     var formattedData = string.Join("; \n", tableData.Select(item => $"{item.budgetItem}: {item.balance}"));
+                     
+                     // 写入预算执行情况数据
+                     worksheet.Cells[targetRow, budgetColumnIndex].Value = formattedData;
+                     Console.WriteLine($"成功将预算执行情况数据写入Excel第 {targetRow} 行，列 {budgetColumnIndex}");
+                     Console.WriteLine($"写入的数据: {formattedData}");
+                     
+                                           // 如果有项目余额列，将余额信息也写入
+                      if (balanceColumnIndex != -1)
+                      {
+                          // 优先使用从表格中提取的项目余额
+                          if (!string.IsNullOrEmpty(projectBalance))
+                          {
+                              // 直接使用表格中的项目余额
+                              if (decimal.TryParse(projectBalance, out decimal extractedBalance))
+                              {
+                                  worksheet.Cells[targetRow, balanceColumnIndex].Value = extractedBalance;
+                                  Console.WriteLine($"成功将表格中的项目余额写入Excel第 {targetRow} 行，列 {balanceColumnIndex}");
+                                  Console.WriteLine($"写入的余额: {extractedBalance}");
+                              }
+                              else
+                              {
+                                  Console.WriteLine($"警告：无法解析表格中的项目余额: {projectBalance}");
+                                  // 如果解析失败，回退到计算方式
+                                  await WriteCalculatedBalance(worksheet, targetRow, balanceColumnIndex, tableData);
+                              }
+                          }
+                          else
+                          {
+                              // 如果没有找到项目余额，使用计算方式
+                              Console.WriteLine("未找到表格中的项目余额，使用计算方式");
+                              await WriteCalculatedBalance(worksheet, targetRow, balanceColumnIndex, tableData);
+                          }
+                      }
+                     
+                                           // 保存Excel文件
+                      package.Save();
+                  }
+              }
+              catch (Exception ex)
+              {
+                  Console.WriteLine($"将表格数据写入Excel时出错: {ex.Message}");
+              }
+          }
+          
+                     /// <summary>
+           /// 写入计算得出的项目余额
+           /// </summary>
+           private async Task WriteCalculatedBalance(ExcelWorksheet worksheet, int targetRow, int balanceColumnIndex, List<(string budgetItem, string balance)> tableData)
+           {
+               try
+               {
+                   // 计算总余额（所有余额的总和）
+                   decimal totalBalance = 0;
+                   foreach (var item in tableData)
+                   {
+                       if (decimal.TryParse(item.balance, out decimal balance))
+                       {
+                           totalBalance += balance;
+                       }
+                   }
+                   
+                   // 写入计算得出的总余额到项目余额列
+                   worksheet.Cells[targetRow, balanceColumnIndex].Value = totalBalance;
+                   Console.WriteLine($"成功将计算得出的项目余额写入Excel第 {targetRow} 行，列 {balanceColumnIndex}");
+                   Console.WriteLine($"写入的余额: {totalBalance}");
+               }
+               catch (Exception ex)
+               {
+                   Console.WriteLine($"写入计算得出的项目余额时出错: {ex.Message}");
+               }
+           }
+           
+           /// <summary>
+           /// 对于未查询到的项目，在Excel中填写"未查询到"
+           /// </summary>
+           private async Task WriteNotFoundToExcel(string projectNumber)
+           {
+               try
+               {
+                   Console.WriteLine($"开始为项目编号 {projectNumber} 填写'未查询到'...");
+                   
+                   // 读取配置文件
+                   var configPath = FindConfigFile();
+                   if (string.IsNullOrEmpty(configPath))
+                   {
+                       Console.WriteLine("错误：未找到配置文件");
+                       return;
+                   }
+                   
+                   var configContent = await File.ReadAllTextAsync(configPath);
+                   var jsonOptions = new System.Text.Json.JsonSerializerOptions
+                   {
+                       PropertyNameCaseInsensitive = true
+                   };
+                   var config = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(configContent, jsonOptions);
+                   
+                   if (config == null || !config.ContainsKey("ExcelFilePath"))
+                   {
+                       Console.WriteLine("错误：配置文件中未找到ExcelFilePath");
+                       return;
+                   }
+                   
+                   var excelFilePath = config["ExcelFilePath"]?.ToString();
+                   if (string.IsNullOrEmpty(excelFilePath))
+                   {
+                       Console.WriteLine("错误：ExcelFilePath为空");
+                       return;
+                   }
+                   
+                   // 查找Excel文件
+                   var actualExcelPath = FindExcelFile(excelFilePath);
+                   if (string.IsNullOrEmpty(actualExcelPath))
+                   {
+                       Console.WriteLine($"错误：Excel文件不存在: {excelFilePath}");
+                       return;
+                   }
+                   
+                   Console.WriteLine($"找到Excel文件: {actualExcelPath}");
+                   
+                   // 打开Excel文件
+                   using (var package = new ExcelPackage(new FileInfo(actualExcelPath)))
+                   {
+                       var worksheet = package.Workbook.Worksheets["0-Proj信息"];
+                       if (worksheet == null)
+                       {
+                           Console.WriteLine("错误：未找到工作表 '0-Proj信息'");
+                           return;
+                       }
+                       
+                       // 查找"项目预算执行情况"列
+                       var budgetColumnIndex = -1;
+                       for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                       {
+                           var headerValue = worksheet.Cells[1, col].Value?.ToString();
+                           if (headerValue == "项目预算执行情况")
+                           {
+                               budgetColumnIndex = col;
+                               break;
+                           }
+                       }
+                       
+                       if (budgetColumnIndex == -1)
+                       {
+                           Console.WriteLine("错误：未找到'项目预算执行情况'列");
+                           return;
+                       }
+                       
+                       // 查找当前项目编号对应的行
+                       var targetRow = -1;
+                       
+                       // 查找"项目编号"列
+                       var projectNumberColumnIndex = -1;
+                       for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                       {
+                           var headerValue = worksheet.Cells[1, col].Value?.ToString();
+                           if (headerValue == "项目编号")
+                           {
+                               projectNumberColumnIndex = col;
+                               break;
+                           }
+                       }
+                       
+                       if (projectNumberColumnIndex != -1)
+                       {
+                           // 在项目编号列中查找当前项目编号
+                           for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
+                           {
+                               var cellValue = worksheet.Cells[row, projectNumberColumnIndex].Value?.ToString();
+                               if (cellValue == projectNumber)
+                               {
+                                   targetRow = row;
+                                   Console.WriteLine($"找到项目编号 {projectNumber} 对应的行: {row}");
+                                   break;
+                               }
+                           }
+                       }
+                       
+                       // 如果没找到对应行，报告错误并跳过
+                       if (targetRow == -1)
+                       {
+                           Console.WriteLine($"错误：未找到项目编号 {projectNumber} 对应的行，跳过数据写入");
+                           return;
+                       }
+                       
+                       // 写入"未查询到"
+                       worksheet.Cells[targetRow, budgetColumnIndex].Value = "未查询到";
+                       Console.WriteLine($"成功将'未查询到'写入Excel第 {targetRow} 行，列 {budgetColumnIndex}");
+                       
+                       // 保存Excel文件
+                       package.Save();
+                       Console.WriteLine($"项目编号 {projectNumber} 的'未查询到'状态已保存到Excel");
+                   }
+               }
+               catch (Exception ex)
+               {
+                   Console.WriteLine($"为项目编号 {projectNumber} 填写'未查询到'时出错: {ex.Message}");
+               }
+           }
+     }
 }
