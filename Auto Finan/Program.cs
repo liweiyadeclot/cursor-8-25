@@ -44,7 +44,7 @@ namespace AutoFinan
             {
                 Console.Write("请输入选择 (1 或 2): ");
                 string input = Console.ReadLine();
-                
+
                 if (int.TryParse(input, out choice) && (choice == 1 || choice == 2))
                 {
                     break;
@@ -91,34 +91,34 @@ namespace AutoFinan
             {
                 // 1. 初始化浏览器
                 await automation.InitializeAsync();
-                
+
                 // 2. 执行登录
                 Console.WriteLine("\n开始登录流程...");
                 bool loginSuccess = await automation.LoginAsync();
-                
+
                 if (loginSuccess)
                 {
                     Console.WriteLine("登录成功！可以开始查找信息了。");
-                    
+
                     // 3. 自动点击"数据查询及公示"导航按钮
                     Console.WriteLine("\n正在自动点击'数据查询及公示'导航按钮...");
                     bool navigationSuccess = await automation.ClickDataQueryAndPublicityButtonAsync();
-                    
+
                     if (navigationSuccess)
                     {
                         Console.WriteLine("导航成功！现在可以开始查找信息了。");
-                        
+
                         // 4. 提取页面信息
                         Console.WriteLine("\n开始提取页面信息...");
                         var pageInfo = await automation.ExtractPageInfoAsync();
-                        
+
                         // 5. 显示提取的信息
                         Console.WriteLine("\n=== 提取的页面信息 ===");
                         foreach (var kvp in pageInfo)
                         {
                             Console.WriteLine($"{kvp.Key}: {kvp.Value}");
                         }
-                        
+
                         // 6. 等待用户查看结果
                         Console.WriteLine("\n信息提取完成，请查看结果...");
                         await automation.WaitForUserOperationAsync();
@@ -127,18 +127,18 @@ namespace AutoFinan
                     {
                         Console.WriteLine("自动导航失败，请手动导航到需要查找信息的页面...");
                         await automation.WaitForUserOperationAsync();
-                        
+
                         // 4. 提取页面信息
                         Console.WriteLine("\n开始提取页面信息...");
                         var pageInfo = await automation.ExtractPageInfoAsync();
-                        
+
                         // 5. 显示提取的信息
                         Console.WriteLine("\n=== 提取的页面信息 ===");
                         foreach (var kvp in pageInfo)
                         {
                             Console.WriteLine($"{kvp.Key}: {kvp.Value}");
                         }
-                        
+
                         // 6. 等待用户查看结果
                         Console.WriteLine("\n信息提取完成，请查看结果...");
                         await automation.WaitForUserOperationAsync();
@@ -344,6 +344,23 @@ namespace AutoFinan
 
                     Console.WriteLine($"\n--- 处理第 {row} 行数据 ---");
 
+                    // 检查是否是新的报销单（通过序号列判断）
+                    bool isNewReimbursement = false;
+                    if (row > 2) // 从第3行开始检查
+                    {
+                        int nextLogicalRow = GetNextLogicalRow(row - 1, worksheet);
+                        if (nextLogicalRow == row)
+                        {
+                            isNewReimbursement = true;
+                            Console.WriteLine($"检测到新的报销单开始（第 {row} 行）");
+                        }
+                    }
+                    else
+                    {
+                        isNewReimbursement = true; // 第一行数据
+                        Console.WriteLine($"开始处理第一个报销单（第 {row} 行）");
+                    }
+
                     // 第二层循环：从左至右，处理当前行的每个单元格
                     Console.WriteLine($"开始第二层循环：处理第 {row} 行的单元格");
                     bool isThisLineHasBeenHandled = false;
@@ -406,7 +423,7 @@ namespace AutoFinan
                         // 如果不是子序列开始列，则正常处理单元格
                         if (!subsequenceStartColumns.Contains(col) && (!string.IsNullOrEmpty(cellValue) || headers[col - 1].StartsWith("?")))
                         {
-                            if(headerName == "预约单状态" && cellValue == "已预约")
+                            if (headerName == "预约单状态" && cellValue == "已预约")
                             {
                                 Console.WriteLine($"第 {row} 行数据已预约，跳过");
                                 row = GetNextLogicalRow(row, worksheet) - 1;
@@ -420,6 +437,24 @@ namespace AutoFinan
                     //if (isThisLineHasBeenHandled)
                     //    break;
                     Console.WriteLine($"第 {row} 行数据处理完成");
+
+                    // 检查当前报销单是否处理完成
+                    int nextReimbursementRow = GetNextLogicalRow(row, worksheet);
+                    if (nextReimbursementRow > row || nextReimbursementRow == 0) // 下一个报销单或最后一个报销单
+                    {
+                        Console.WriteLine($"\n=== 报销单处理完成（第 {row} 行）===");
+                        Console.WriteLine("正在保存Excel文件...");
+                        try
+                        {
+                            SaveExcelFile();
+                            Console.WriteLine("✓ Excel文件保存成功");
+                        }
+                        catch (Exception saveEx)
+                        {
+                            Console.WriteLine($"❌ Excel文件保存失败: {saveEx.Message}");
+                        }
+                        Console.WriteLine($"=== 报销单处理完成，继续处理下一个 ===\n");
+                    }
 
                 }
 
@@ -454,14 +489,14 @@ namespace AutoFinan
         private int GetNextLogicalRow(int currentRow, ExcelWorksheet workSheet)
         {
             int logicIDColNum = 0;
-            for(int i = 1; i <= (workSheet.Dimension?.Columns ?? 0); i++)
+            for (int i = 1; i <= (workSheet.Dimension?.Columns ?? 0); i++)
             {
                 string head = workSheet.Cells[1, i].Text;
                 if (head == "序号")
                     logicIDColNum = i;
             }
 
-            for(int i = currentRow; i <= (workSheet.Dimension?.Rows ?? 0); i++)
+            for (int i = currentRow; i <= (workSheet.Dimension?.Rows ?? 0); i++)
             {
                 if (workSheet.Cells[i, logicIDColNum].Text != workSheet.Cells[currentRow, logicIDColNum].Text)
                 {
@@ -750,7 +785,7 @@ namespace AutoFinan
                             if (parts.Length >= 2)
                             {
                                 string appointID = parts[0];
-                                if(appointID != "null")
+                                if (appointID != "null")
                                 {
                                     valueToWrite = "已预约";
                                 }
@@ -975,51 +1010,57 @@ namespace AutoFinan
                 Console.WriteLine($"      检测到回车键操作");
                 await PressEnterKey();
             }
-            // 4. 按钮点击操作（以$开头）
+            // 4. 返回主页按钮操作（特殊处理）
+            else if (headerName == "返回主页按钮" && cellValue == "$点击")
+            {
+                Console.WriteLine($"      检测到返回主页按钮操作");
+                await ReturnToMainPage();
+            }
+            // 5. 按钮点击操作（以$开头）
             else if (cellValue == "$点击" || cellValue == "$预约")
             {
                 Console.WriteLine($"      检测到按钮点击操作: {headerName}");
-                await ClickButton(headerName);
+                await ClickButtonWithTimeout(headerName);
             }
-            // 5. Radio按钮点击操作（以$$开头）
+            // 6. Radio按钮点击操作（以$$开头）
             else if (cellValue.StartsWith("$$"))
             {
                 string radioValue = cellValue.Substring(2); // 去掉$$前缀
                 Console.WriteLine($"      检测到Radio按钮操作: {radioValue}");
                 await ClickRadioButton(radioValue);
             }
-            // 6. 银行卡选择操作（以*开头）
+            // 7. 银行卡选择操作（以*开头）
             else if (cellValue.StartsWith("*"))
             {
                 Console.WriteLine($"      检测到银行卡选择操作: {cellValue}");
                 await SelectCardByNumber(cellValue);
             }
-            // 7. 科目输入框操作（以#开头）
+            // 8. 科目输入框操作（以#开头）
             else if (cellValue.StartsWith("#"))
             {
                 Console.WriteLine($"      检测到科目输入框操作: {cellValue}");
                 await FillSubjectInput(headerName, cellValue);
             }
-            // 8. 下拉框选择操作
+            // 9. 下拉框选择操作
             else if (IsDropdownField(headerName))
             {
                 Console.WriteLine($"      检测到下拉框选择操作: {headerName} = {cellValue}");
                 await SelectDropdown(headerName, cellValue);
             }
-            // 9. 日期选择操作（日期字段或格式：yyyy-mm-dd）
+            // 10. 日期选择操作（日期字段或格式：yyyy-mm-dd）
             else if (IsDateField(headerName) || IsDate(cellValue))
             {
                 Console.WriteLine($"      检测到日期选择操作: {cellValue}");
                 await SelectDate(headerName, cellValue);
             }
-            // 10. 金额输入框操作（需要与科目配对）
+            // 11. 金额输入框操作（需要与科目配对）
             else if (headerName == "金额" && !string.IsNullOrEmpty(currentSubjectId))
             {
                 Console.WriteLine($"      检测到金额输入框操作: {cellValue}");
                 await FillAmountInput(currentSubjectId, cellValue);
                 currentSubjectId = null; // 清空当前科目ID
             }
-            // 11. 一般输入框操作
+            // 12. 一般输入框操作
             else
             {
                 Console.WriteLine($"      检测到输入框操作: {cellValue}");
@@ -1319,7 +1360,7 @@ namespace AutoFinan
                     catch (Exception ex)
                     {
                         Console.WriteLine($"      JavaScript函数执行失败: {ex.Message}");
-                        return;
+                        throw new Exception($"JavaScript函数执行失败: {ex.Message}");
                     }
                 }
 
@@ -1542,10 +1583,127 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      点击按钮失败: {ex.Message}");
+                throw; // 重新抛出异常，让上层调用者知道操作失败
             }
         }
 
+        /// <summary>
+        /// 带超时和重试机制的按钮点击方法
+        /// </summary>
+        private async Task ClickButtonWithTimeout(string headerName)
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
 
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试点击按钮: {headerName}");
+
+                try
+                {
+                    // 执行按钮点击操作
+                    await ClickButton(headerName);
+                    
+                    // 如果执行成功，直接返回
+                    Console.WriteLine($"      按钮点击成功: {headerName}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+                    
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误并返回主页
+            Console.WriteLine($"      ❌ 按钮点击超时（1分钟）: {headerName}");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，现在返回主页并跳过当前报销单");
+            
+            try
+            {
+                await ReturnToMainPage();
+                Console.WriteLine($"      ✓ 已成功返回主页");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      ❌ 返回主页失败: {ex.Message}");
+            }
+            
+            // 抛出异常，让上层调用者知道需要跳过当前报销单
+            throw new TimeoutException($"按钮点击超时: {headerName}");
+        }
+
+        /// <summary>
+        /// 返回主页操作
+        /// </summary>
+        private async Task ReturnToMainPage()
+        {
+            try
+            {
+                Console.WriteLine("      正在返回主页...");
+                
+                // 等待页面完全加载
+                await Task.Delay(2000);
+                
+                // 首先在主页面查找"网上报销管理"按钮
+                // 使用更精确的选择器，通过onclick属性和href属性来定位正确的按钮
+                var mainPageLocator = page.Locator("a[href='#'][onclick*='报销单管理'][onclick*='网上报销管理-网上报帐业务']");
+                var mainPageCount = await mainPageLocator.CountAsync();
+                
+                if (mainPageCount > 0)
+                {
+                    Console.WriteLine("      在主页面中找到'网上报销管理'按钮");
+                    await mainPageLocator.ClickAsync();
+                    Console.WriteLine("      成功点击'网上报销管理'按钮，返回主页");
+                    await Task.Delay(3000); // 等待页面跳转
+                    return;
+                }
+                
+                // 如果主页面没找到，在所有iframe中查找
+                var frames = page.Frames;
+                Console.WriteLine($"      在主页面中未找到按钮，在所有iframe中查找...");
+                
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    var frame = frames[i];
+                    try
+                    {
+                        // 使用更精确的选择器，通过onclick属性和href属性来定位正确的按钮
+                        var frameLocator = frame.Locator("a[href='#'][onclick*='报销单管理'][onclick*='网上报销管理-网上报帐业务']");
+                        var frameCount = await frameLocator.CountAsync();
+                        
+                        if (frameCount > 0)
+                        {
+                            Console.WriteLine($"      在iframe {i + 1} 中找到'网上报销管理'按钮");
+                            await frameLocator.ClickAsync();
+                            Console.WriteLine($"      在iframe {i + 1} 中成功点击'网上报销管理'按钮，返回主页");
+                            await Task.Delay(3000); // 等待页面跳转
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      检查iframe {i + 1} 时出错: {ex.Message}");
+                    }
+                }
+                
+                Console.WriteLine("      警告：在所有iframe中都未找到'网上报销管理'按钮");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      返回主页时出错: {ex.Message}");
+                throw;
+            }
+        }
 
         private async Task FillCaptcha(string captcha)
         {
