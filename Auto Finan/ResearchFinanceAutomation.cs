@@ -9,12 +9,13 @@ using System.Text.Json;
 
 namespace AutoFinan
 {
-    public class ResearchFinanceAutomation
-    {
-        private IPlaywright playwright;
-        private IBrowser browser;
-        private IPage page;
-        private bool isLoggedIn = false;
+         public class ResearchFinanceAutomation
+     {
+         private IPlaywright playwright;
+         private IBrowser browser;
+         private IPage page;
+         private bool isLoggedIn = false;
+         private string currentUsername = "";
 
         /// <summary>
         /// 启动浏览器并导航到科研财务系统
@@ -52,26 +53,46 @@ namespace AutoFinan
             }
         }
 
-        /// <summary>
-        /// 执行登录流程
-        /// </summary>
-        public async Task<bool> LoginAsync()
-        {
-            try
-            {
-                Console.WriteLine("开始执行登录流程...");
+                 /// <summary>
+         /// 执行登录流程
+         /// </summary>
+         public async Task<bool> LoginAsync()
+         {
+             try
+             {
+                 Console.WriteLine("开始执行登录流程...");
 
-                // 等待登录表单加载
-                await page.WaitForSelectorAsync("#uid", new PageWaitForSelectorOptions { Timeout = 5000 });
-                Console.WriteLine("登录表单加载完成");
+                 // 等待登录表单加载
+                 await page.WaitForSelectorAsync("#uid", new PageWaitForSelectorOptions { Timeout = 5000 });
+                 Console.WriteLine("登录表单加载完成");
 
-                // 填写用户名
-                await page.FillAsync("#uid", "5070016");
-                Console.WriteLine("已填写用户名: 5070016");
+                 // 获取用户输入的账号密码
+                 Console.WriteLine("请输入登录信息：");
+                 Console.Write("用户名: ");
+                 var username = Console.ReadLine()?.Trim();
+                 
+                 if (string.IsNullOrEmpty(username))
+                 {
+                     Console.WriteLine("错误：用户名不能为空");
+                     return false;
+                 }
 
-                // 填写密码
-                await page.FillAsync("#pwd", "Kp5070016");
-                Console.WriteLine("已填写密码: Kp5070016");
+                 Console.Write("密码: ");
+                 var password = ReadPassword();
+                 
+                 if (string.IsNullOrEmpty(password))
+                 {
+                     Console.WriteLine("错误：密码不能为空");
+                     return false;
+                 }
+
+                 // 填写用户名
+                 await page.FillAsync("#uid", username);
+                 Console.WriteLine($"已填写用户名: {username}");
+
+                 // 填写密码
+                 await page.FillAsync("#pwd", password);
+                 Console.WriteLine("已填写密码: [已隐藏]");
 
                 // 等待用户输入验证码
                 Console.WriteLine("请查看验证码图片并在下方输入验证码:");
@@ -198,24 +219,36 @@ namespace AutoFinan
                         }
                     }
 
-                    if (hasSuccessIndicator)
-                    {
-                        Console.WriteLine("登录成功！");
-                        isLoggedIn = true;
-                        return true;
-                    }
+                                         if (hasSuccessIndicator)
+                     {
+                         Console.WriteLine("登录成功！");
+                         isLoggedIn = true;
+                         
+                         // 提取当前用户名
+                         await ExtractCurrentUsername();
+                         
+                         return true;
+                     }
 
-                    // 如果没有明确的成功标识，但URL已经变化且没有错误信息，也认为登录成功
-                    if (finalUrl != "https://www.kycw.uestc.edu.cn/WFManager/home.jsp")
-                    {
-                        Console.WriteLine("URL已变化且无错误信息，认为登录成功");
-                        isLoggedIn = true;
-                        return true;
-                    }
+                     // 如果没有明确的成功标识，但URL已经变化且没有错误信息，也认为登录成功
+                     if (finalUrl != "https://www.kycw.uestc.edu.cn/WFManager/home.jsp")
+                     {
+                         Console.WriteLine("URL已变化且无错误信息，认为登录成功");
+                         isLoggedIn = true;
+                         
+                         // 提取当前用户名
+                         await ExtractCurrentUsername();
+                         
+                         return true;
+                     }
 
-                    Console.WriteLine("登录状态不明确，但无明确错误，认为登录成功");
-                    isLoggedIn = true;
-                    return true;
+                     Console.WriteLine("登录状态不明确，但无明确错误，认为登录成功");
+                     isLoggedIn = true;
+                     
+                     // 提取当前用户名
+                     await ExtractCurrentUsername();
+                     
+                     return true;
                 }
                 catch (Exception ex)
                 {
@@ -724,29 +757,74 @@ namespace AutoFinan
                          return new List<string>();
                      }
 
-                     // 读取项目编号数据，只包含需要更新的项目
-                     var projectNumbers = new List<string>();
-                     var maxRows = worksheet.Dimension?.Rows ?? 0;
-                     
-                     for (int row = 2; row <= maxRows; row++) // 从第2行开始（跳过标题行）
-                     {
-                         var cellValue = worksheet.Cells[row, projectNumberColumn].Value?.ToString()?.Trim();
-                         var updateValue = worksheet.Cells[row, updateColumn].Value?.ToString()?.Trim();
-                         
-                         if (!string.IsNullOrEmpty(cellValue))
-                         {
-                             // 检查是否需要更新
-                             if (updateValue == "是")
-                             {
-                                 projectNumbers.Add(cellValue);
-                                 Console.WriteLine($"读取到项目编号: {cellValue} (需要更新)");
-                             }
-                             else
-                             {
-                                 Console.WriteLine($"跳过项目编号: {cellValue} (不需要更新，值为: {updateValue})");
-                             }
-                         }
-                     }
+                                           // 查找"负责人"列
+                      var responsiblePersonColumn = -1;
+                      for (int col = 1; col <= maxColumns; col++)
+                      {
+                          var headerValue = worksheet.Cells[1, col].Value?.ToString()?.Trim();
+                          if (headerValue == "负责人")
+                          {
+                              responsiblePersonColumn = col;
+                              Console.WriteLine($"找到'负责人'列，位于第{col}列");
+                              break;
+                          }
+                      }
+
+                      if (responsiblePersonColumn == -1)
+                      {
+                          Console.WriteLine("错误：未找到'负责人'列");
+                          return new List<string>();
+                      }
+
+                      // 读取项目编号数据，只包含需要更新且负责人匹配的项目
+                      var projectNumbers = new List<string>();
+                      var maxRows = worksheet.Dimension?.Rows ?? 0;
+                      var foundMatchingResponsiblePerson = false;
+                      
+                      for (int row = 2; row <= maxRows; row++) // 从第2行开始（跳过标题行）
+                      {
+                          var cellValue = worksheet.Cells[row, projectNumberColumn].Value?.ToString()?.Trim();
+                          var updateValue = worksheet.Cells[row, updateColumn].Value?.ToString()?.Trim();
+                          var responsiblePerson = worksheet.Cells[row, responsiblePersonColumn].Value?.ToString()?.Trim();
+                          
+                          if (!string.IsNullOrEmpty(cellValue))
+                          {
+                              // 检查是否需要更新
+                              if (updateValue == "是")
+                              {
+                                  // 检查负责人是否匹配
+                                  if (string.IsNullOrEmpty(currentUsername))
+                                  {
+                                      Console.WriteLine($"警告：未获取到当前用户名，跳过项目编号: {cellValue}");
+                                      continue;
+                                  }
+                                  
+                                  // 使用模糊匹配：检查负责人是否以当前用户名开头
+                                  if (responsiblePerson.StartsWith(currentUsername))
+                                  {
+                                      projectNumbers.Add(cellValue);
+                                      foundMatchingResponsiblePerson = true;
+                                      Console.WriteLine($"读取到项目编号: {cellValue} (需要更新，负责人匹配: {responsiblePerson} 匹配 {currentUsername})");
+                                  }
+                                  else
+                                  {
+                                      Console.WriteLine($"跳过项目编号: {cellValue} (负责人不匹配: {responsiblePerson} 不匹配 {currentUsername})");
+                                      
+                                      // 如果已经找到过匹配的负责人，但现在遇到不匹配的，说明已经超出了当前用户负责的项目范围
+                                      if (foundMatchingResponsiblePerson)
+                                      {
+                                          Console.WriteLine("已超出当前用户负责的项目范围，停止读取");
+                                          break;
+                                      }
+                                      // 如果还没找到匹配的负责人，继续查找
+                                  }
+                              }
+                              else
+                              {
+                                  Console.WriteLine($"跳过项目编号: {cellValue} (不需要更新，值为: {updateValue})");
+                              }
+                          }
+                      }
 
                     Console.WriteLine($"成功读取到 {projectNumbers.Count} 个项目编号");
                     return projectNumbers;
@@ -844,10 +922,131 @@ namespace AutoFinan
         /// </summary>
         public bool IsLoggedIn => isLoggedIn;
 
-        /// <summary>
-        /// 获取当前页面对象（供外部使用）
-        /// </summary>
-        public IPage CurrentPage => page;
+                 /// <summary>
+         /// 获取当前页面对象（供外部使用）
+         /// </summary>
+         public IPage CurrentPage => page;
+
+         /// <summary>
+         /// 安全地读取密码（不显示在屏幕上）
+         /// </summary>
+         private string ReadPassword()
+         {
+             var password = "";
+             ConsoleKeyInfo key;
+             
+             do
+             {
+                 key = Console.ReadKey(true);
+                 
+                 if (key.Key != ConsoleKey.Backspace && key.Key != ConsoleKey.Enter)
+                 {
+                     password += key.KeyChar;
+                     Console.Write("*");
+                 }
+                 else if (key.Key == ConsoleKey.Backspace && password.Length > 0)
+                 {
+                     password = password.Substring(0, password.Length - 1);
+                     Console.Write("\b \b");
+                 }
+             }
+             while (key.Key != ConsoleKey.Enter);
+             
+             Console.WriteLine(); // 换行
+             return password;
+         }
+
+         /// <summary>
+         /// 提取当前登录用户名
+         /// </summary>
+         private async Task ExtractCurrentUsername()
+         {
+             try
+             {
+                 Console.WriteLine("正在提取当前登录用户名...");
+                 
+                 // 等待页面完全加载
+                 await Task.Delay(2000);
+                 
+                 // 首先在主页面查找
+                 var mainPageLocator = page.Locator("#spUsername");
+                 var mainPageCount = await mainPageLocator.CountAsync();
+                 
+                 if (mainPageCount > 0)
+                 {
+                     var usernameText = await mainPageLocator.TextContentAsync();
+                     if (!string.IsNullOrEmpty(usernameText))
+                     {
+                         // 提取用户名（去掉<br>标签和后面的"科研人员"等文字）
+                         // 先替换HTML标签，然后按行分割
+                         var cleanText = usernameText.Replace("<br>", "\n").Replace("<br/>", "\n").Replace("<br />", "\n");
+                         var lines = cleanText.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                         if (lines.Length > 0)
+                         {
+                             currentUsername = lines[0].Trim();
+                             
+                             // 进一步清理：如果用户名包含"科研人员"等后缀，去掉它们
+                             if (currentUsername.Contains("科研人员"))
+                             {
+                                 currentUsername = currentUsername.Replace("科研人员", "").Trim();
+                             }
+                             
+                             Console.WriteLine($"成功提取到当前用户名: {currentUsername}");
+                             return;
+                         }
+                     }
+                 }
+                 
+                 // 如果主页面没找到，在所有iframe中查找
+                 var frames = page.Frames;
+                 Console.WriteLine($"在主页面中未找到用户名元素，在所有iframe中查找...");
+                 
+                 for (int i = 0; i < frames.Count; i++)
+                 {
+                     var frame = frames[i];
+                     try
+                     {
+                         var frameLocator = frame.Locator("#spUsername");
+                         var frameCount = await frameLocator.CountAsync();
+                         
+                         if (frameCount > 0)
+                         {
+                             var usernameText = await frameLocator.TextContentAsync();
+                             if (!string.IsNullOrEmpty(usernameText))
+                             {
+                                 // 提取用户名（去掉<br>标签和后面的"科研人员"等文字）
+                                 // 先替换HTML标签，然后按行分割
+                                 var cleanText = usernameText.Replace("<br>", "\n").Replace("<br/>", "\n").Replace("<br />", "\n");
+                                 var lines = cleanText.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                                 if (lines.Length > 0)
+                                 {
+                                     currentUsername = lines[0].Trim();
+                                     
+                                     // 进一步清理：如果用户名包含"科研人员"等后缀，去掉它们
+                                     if (currentUsername.Contains("科研人员"))
+                                     {
+                                         currentUsername = currentUsername.Replace("科研人员", "").Trim();
+                                     }
+                                     
+                                     Console.WriteLine($"在iframe {i + 1} 中成功提取到当前用户名: {currentUsername}");
+                                     return;
+                                 }
+                             }
+                         }
+                     }
+                     catch (Exception ex)
+                     {
+                         Console.WriteLine($"检查iframe {i + 1} 时出错: {ex.Message}");
+                     }
+                 }
+                 
+                 Console.WriteLine("警告：未找到用户名元素，将无法进行负责人匹配");
+             }
+             catch (Exception ex)
+             {
+                 Console.WriteLine($"提取用户名时出错: {ex.Message}");
+             }
+         }
 
         /// <summary>
         /// 查找配置文件 - 使用逐级向上查找的方法
