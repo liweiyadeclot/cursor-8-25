@@ -187,6 +187,9 @@ namespace AutoFinan
         private ExcelPackage currentPackage; // 当前Excel包引用
 
         private int lastRow;                // 最近处理的报销单的首行行号
+
+        private bool IsLogin;
+        private int colAfterLogin;  //  去除登录操作的第一个单元格操作列
         public async Task RunAsync()
         {
             Console.WriteLine("开始读取配置文件...");
@@ -344,6 +347,9 @@ namespace AutoFinan
 
                     Console.WriteLine($"\n--- 处理第 {row} 行数据 ---");
 
+                    try
+                    {
+
                     // 检查是否是新的报销单（通过序号列判断）
                     bool isNewReimbursement = false;
                     if (row > 2) // 从第3行开始检查
@@ -365,7 +371,9 @@ namespace AutoFinan
                     Console.WriteLine($"开始第二层循环：处理第 {row} 行的单元格");
                     bool isThisLineHasBeenHandled = false;
 
-                    for (int col = 1; col <= colCount; col++)
+                    int logicalBeginCol = IsLogin ? colAfterLogin : 1;
+
+                    for (int col = logicalBeginCol; col <= colCount; col++)
                     {
                         var cellValue = worksheet.Cells[row, col].Value?.ToString() ?? "";
                         var columnName = GetColumnName(col);
@@ -431,6 +439,11 @@ namespace AutoFinan
                                 isThisLineHasBeenHandled = true;
                                 break;
                             }
+
+                            if (headerName == "申请报销单按钮")
+                            {
+                                colAfterLogin = col;
+                            }
                             await ProcessCell(columnName, row, headerName, cellValue);
                         }
                     }
@@ -454,6 +467,41 @@ namespace AutoFinan
                             Console.WriteLine($"❌ Excel文件保存失败: {saveEx.Message}");
                         }
                         Console.WriteLine($"=== 报销单处理完成，继续处理下一个 ===\n");
+                    }
+                    }
+                    catch (TimeoutException ex)
+                    {
+                        Console.WriteLine($"\n❌ 第 {row} 行处理超时: {ex.Message}");
+                        Console.WriteLine($"跳过第 {row} 行，继续处理下一行");
+                        
+                        // 使用GetNextLogicalRow方法找到下一个报销单所在的行
+                        int nextRow = GetNextLogicalRow(row, worksheet);
+                        if (nextRow > row)
+                        {
+                            Console.WriteLine($"找到下一个报销单在第 {nextRow} 行，跳转到该行");
+                            row = nextRow - 1; // 减1是因为for循环会自动+1
+                        }
+                        else
+                        {
+                            Console.WriteLine($"没有找到下一个报销单，继续处理下一行");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"\n❌ 第 {row} 行处理出错: {ex.Message}");
+                        Console.WriteLine($"跳过第 {row} 行，继续处理下一行");
+                        
+                        // 使用GetNextLogicalRow方法找到下一个报销单所在的行
+                        int nextRow = GetNextLogicalRow(row, worksheet);
+                        if (nextRow > row)
+                        {
+                            Console.WriteLine($"找到下一个报销单在第 {nextRow} 行，跳转到该行");
+                            row = nextRow - 1; // 减1是因为for循环会自动+1
+                        }
+                        else
+                        {
+                            Console.WriteLine($"没有找到下一个报销单，继续处理下一行");
+                        }
                     }
 
                 }
@@ -1027,7 +1075,7 @@ namespace AutoFinan
             {
                 string radioValue = cellValue.Substring(2); // 去掉$$前缀
                 Console.WriteLine($"      检测到Radio按钮操作: {radioValue}");
-                await ClickRadioButton(radioValue);
+                await ClickRadioButtonWithTimeout(radioValue);
             }
             // 7. 银行卡选择操作（以*开头）
             else if (cellValue.StartsWith("*"))
@@ -1289,6 +1337,7 @@ namespace AutoFinan
                     {
                         await page.EvaluateAsync(elementId);
                         Console.WriteLine($"      成功执行JavaScript函数: {elementId}");
+                        IsLogin = true;
                         await Task.Delay(2000); // 等待页面跳转
 
                         // 打印页面信息以确认是否跳转到新页面
@@ -1558,6 +1607,7 @@ namespace AutoFinan
                 if (!clicked)
                 {
                     Console.WriteLine($"      最终失败：无法找到按钮 {elementId}");
+                    throw new Exception($"无法找到按钮 {elementId}");
                 }
                 else
                 {
@@ -1640,6 +1690,61 @@ namespace AutoFinan
             
             // 抛出异常，让上层调用者知道需要跳过当前报销单
             throw new TimeoutException($"按钮点击超时: {headerName}");
+        }
+
+        /// <summary>
+        /// 带超时和重试机制的Radio按钮点击方法
+        /// </summary>
+        private async Task ClickRadioButtonWithTimeout(string radioValue)
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试点击Radio按钮: {radioValue}");
+
+                try
+                {
+                    // 执行Radio按钮点击操作
+                    await ClickRadioButton(radioValue);
+                    
+                    // 如果执行成功，直接返回
+                    Console.WriteLine($"      Radio按钮点击成功: {radioValue}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+                    
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误并返回主页
+            Console.WriteLine($"      ❌ Radio按钮点击超时（1分钟）: {radioValue}");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，现在返回主页并跳过当前报销单");
+            
+            try
+            {
+                await ReturnToMainPage();
+                Console.WriteLine($"      ✓ 已成功返回主页");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      ❌ 返回主页失败: {ex.Message}");
+            }
+            
+            // 抛出异常，让上层调用者知道需要跳过当前报销单
+            throw new TimeoutException($"Radio按钮点击超时: {radioValue}");
         }
 
         /// <summary>
@@ -1969,6 +2074,8 @@ namespace AutoFinan
                         await syslinkElement.ClickAsync();
                         Console.WriteLine("      成功点击网上预约报账导航按钮（通过class+onclick）");
                         await Task.Delay(2000); // 等待页面跳转
+
+                        IsLogin = true;
                         return;
                     }
                 }
@@ -2996,6 +3103,152 @@ namespace AutoFinan
             return null;
         }
 
+        /// <summary>
+        /// 获取科目表格HTML并解析科目-ID字典（带超时和重试机制）
+        /// </summary>
+        private async Task<Dictionary<string, string>> GetSubjectIdDictionary()
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试获取科目表格HTML...");
+
+                try
+                {
+                    // 方法1: 先在主页面查找表格元素
+                    var tableLocator = page.Locator("#gridWF_YB6_2375");
+                    if (await tableLocator.CountAsync() > 0)
+                    {
+                        Console.WriteLine("      在主页面找到科目表格 #gridWF_YB6_2375");
+                        var tableHtml = await tableLocator.InnerHTMLAsync();
+                        Console.WriteLine($"      成功获取表格HTML，长度: {tableHtml.Length}");
+                        
+                        var subjectIdDict = ParseSubjectTableHtml(tableHtml);
+                        Console.WriteLine($"      解析完成，找到 {subjectIdDict.Count} 个科目");
+                        return subjectIdDict;
+                    }
+
+                    // 方法2: 在iframe中查找表格元素
+                    Console.WriteLine("      主页面未找到表格，开始在iframe中查找...");
+                    var frames = page.Frames;
+                    foreach (var frame in frames)
+                    {
+                        try
+                        {
+                            Console.WriteLine($"      检查iframe: {frame.Name}");
+                            var iframeTableLocator = frame.Locator("#gridWF_YB6_2375");
+                            if (await iframeTableLocator.CountAsync() > 0)
+                            {
+                                Console.WriteLine($"      在iframe '{frame.Name}' 中找到科目表格 #gridWF_YB6_2375");
+                                var tableHtml = await iframeTableLocator.InnerHTMLAsync();
+                                Console.WriteLine($"      成功获取表格HTML，长度: {tableHtml.Length}");
+                                
+                                var subjectIdDict = ParseSubjectTableHtml(tableHtml);
+                                Console.WriteLine($"      解析完成，找到 {subjectIdDict.Count} 个科目");
+                                return subjectIdDict;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      在iframe '{frame.Name}' 中查找表格失败: {ex.Message}");
+                            continue;
+                        }
+                    }
+
+                    Console.WriteLine($"      第 {attemptCount} 次尝试未找到科目表格，等待 {retryInterval.TotalSeconds} 秒后重试...");
+                    
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        await Task.Delay(retryInterval);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+                    
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误
+            Console.WriteLine($"      ❌ 获取科目表格超时（1分钟）");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，未找到科目表格 #gridWF_YB6_2375");
+            return null;
+        }
+
+        /// <summary>
+        /// 解析科目表格HTML，提取科目名称和ID的对应关系
+        /// </summary>
+        private Dictionary<string, string> ParseSubjectTableHtml(string htmlContent)
+        {
+            var result = new Dictionary<string, string>();
+            
+            try
+            {
+                // 使用正则表达式解析HTML
+                // 查找所有包含role="row"的tr元素
+                var rowPattern = @"<tr[^>]*role=""row""[^>]*class=""[^""]*ui-widget-content[^""]*""[^>]*>.*?</tr>";
+                var rowMatches = System.Text.RegularExpressions.Regex.Matches(htmlContent, rowPattern, System.Text.RegularExpressions.RegexOptions.Singleline);
+                
+                foreach (System.Text.RegularExpressions.Match rowMatch in rowMatches)
+                {
+                    var rowHtml = rowMatch.Value;
+                    
+                    // 检查是否是叶子节点（通过TLEAF属性）
+                    if (!rowHtml.Contains("TLEAF") || !rowHtml.Contains("title=\"true\""))
+                    {
+                        continue; // 跳过非叶子节点
+                    }
+                    
+                    // 提取科目名称
+                    var namePattern = @"<td[^>]*aria-describedby=""[^""]*t\.b_name[^""]*""[^>]*>.*?<span[^>]*class=""[^""]*(?:cell-wrapper|cell-wrapperleaf)[^""]*""[^>]*>([^<]+)</span>.*?</td>";
+                    var nameMatch = System.Text.RegularExpressions.Regex.Match(rowHtml, namePattern, System.Text.RegularExpressions.RegexOptions.Singleline);
+                    
+                    if (!nameMatch.Success)
+                    {
+                        // 尝试不包含span的情况
+                        namePattern = @"<td[^>]*aria-describedby=""[^""]*t\.b_name[^""]*""[^>]*>([^<]+)</td>";
+                        nameMatch = System.Text.RegularExpressions.Regex.Match(rowHtml, namePattern, System.Text.RegularExpressions.RegexOptions.Singleline);
+                    }
+                    
+                    if (!nameMatch.Success)
+                    {
+                        continue;
+                    }
+                    
+                    var subjectName = nameMatch.Groups[1].Value.Trim();
+                    
+                    // 提取输入框ID
+                    var inputPattern = @"<input[^>]*class=""[^""]*qinput[^""]*""[^>]*cname=""t\.value""[^>]*id=""([^""]+)""[^>]*>";
+                    var inputMatch = System.Text.RegularExpressions.Regex.Match(rowHtml, inputPattern, System.Text.RegularExpressions.RegexOptions.Singleline);
+                    
+                    if (inputMatch.Success)
+                    {
+                        var inputId = inputMatch.Groups[1].Value.Trim();
+                        result[subjectName] = inputId;
+                        Console.WriteLine($"        找到科目: {subjectName} -> {inputId}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      解析HTML失败: {ex.Message}");
+            }
+            
+            return result;
+        }
+
         private async Task FillSubjectInput(string headerName, string cellValue)
         {
             try
@@ -3006,15 +3259,26 @@ namespace AutoFinan
                 Console.WriteLine($"      处理科目输入框: {headerName} = {cellValue}");
                 Console.WriteLine($"      提取科目名称: {subjectName}");
 
-                // 在标题-ID表中查找对应的输入框ID
-                string elementId = GetElementId(subjectName);
-                if (string.IsNullOrEmpty(elementId))
+                // 获取表格HTML并解析科目-ID字典
+                var subjectIdDict = await GetSubjectIdDictionary();
+                if (subjectIdDict == null || subjectIdDict.Count == 0)
                 {
-                    Console.WriteLine($"      警告：未找到科目 '{subjectName}' 对应的ID映射");
-                    return;
+                    Console.WriteLine($"      警告：无法获取科目表格数据，跳过当前报销单");
+                    await ReturnToMainPage();
+                    throw new Exception($"无法获取科目表格数据");
                 }
 
-                Console.WriteLine($"      找到科目输入框ID: {subjectName} -> {elementId}");
+                // 检查科目名称是否在表格中存在
+                if (!subjectIdDict.ContainsKey(subjectName))
+                {
+                    Console.WriteLine($"      警告：科目 '{subjectName}' 在表格中不存在，跳过当前报销单");
+                    await ReturnToMainPage();
+                    throw new Exception($"科目 '{subjectName}' 在表格中不存在");
+                }
+
+                // 从表格中获取对应的输入框ID
+                string elementId = subjectIdDict[subjectName];
+                Console.WriteLine($"      从表格中找到科目输入框ID: {subjectName} -> {elementId}");
 
                 // 存储当前科目ID，供后续金额填写使用
                 currentSubjectId = elementId;
@@ -3094,11 +3358,13 @@ namespace AutoFinan
                 if (!filled)
                 {
                     Console.WriteLine($"      最终失败：无法找到科目输入框 {elementId}");
+                    throw new Exception($"无法找到科目输入框 {elementId}");
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"      填写科目输入框失败: {ex.Message}");
+                throw; // 重新抛出异常，让上层调用者处理
             }
         }
 
