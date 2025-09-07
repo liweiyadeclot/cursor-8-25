@@ -472,6 +472,15 @@ namespace AutoFinan
                     catch (TimeoutException ex)
                     {
                         Console.WriteLine($"\n❌ 第 {row} 行处理超时: {ex.Message}");
+                        
+                        // 记录失败的单元格位置到预约单状态列
+                        // 从异常消息中提取列名和行号信息
+                        string failedCellInfo = ExtractCellInfoFromException(ex.Message, headers);
+                        if (!string.IsNullOrEmpty(failedCellInfo))
+                        {
+                            RecordFailedCellPosition(failedCellInfo, row);
+                        }
+                        
                         Console.WriteLine($"跳过第 {row} 行，继续处理下一行");
                         
                         // 使用GetNextLogicalRow方法找到下一个报销单所在的行
@@ -489,6 +498,15 @@ namespace AutoFinan
                     catch (Exception ex)
                     {
                         Console.WriteLine($"\n❌ 第 {row} 行处理出错: {ex.Message}");
+                        
+                        // 记录失败的单元格位置到预约单状态列
+                        // 从异常消息中提取列名和行号信息
+                        string failedCellInfo = ExtractCellInfoFromException(ex.Message, headers);
+                        if (!string.IsNullOrEmpty(failedCellInfo))
+                        {
+                            RecordFailedCellPosition(failedCellInfo, row);
+                        }
+                        
                         Console.WriteLine($"跳过第 {row} 行，继续处理下一行");
                         
                         // 使用GetNextLogicalRow方法找到下一个报销单所在的行
@@ -872,6 +890,139 @@ namespace AutoFinan
         }
 
         /// <summary>
+        /// 从异常消息中提取单元格信息
+        /// </summary>
+        private string ExtractCellInfoFromException(string exceptionMessage, List<string> headers = null)
+        {
+            try
+            {
+                // 尝试从异常消息中提取列名和行号
+                // 异常消息格式可能是: "操作超时: 登录按钮 = '$点击'" 或 "按钮点击超时: 登录按钮"
+                
+                // 查找包含 "=" 的消息，提取列名
+                if (exceptionMessage.Contains(" = "))
+                {
+                    var parts = exceptionMessage.Split(new[] { " = " }, StringSplitOptions.None);
+                    if (parts.Length >= 2)
+                    {
+                        // 提取列名（去掉可能的空格）
+                        string headerName = parts[0].Trim();
+                        
+                        // 如果列名包含 "操作超时:" 或 "按钮点击超时:" 等前缀，去掉它们
+                        if (headerName.Contains("操作超时:"))
+                        {
+                            headerName = headerName.Replace("操作超时:", "").Trim();
+                        }
+                        else if (headerName.Contains("按钮点击超时:"))
+                        {
+                            headerName = headerName.Replace("按钮点击超时:", "").Trim();
+                        }
+                        
+                        // 如果有headers数组，尝试将标题名称转换为Excel列名
+                        if (headers != null)
+                        {
+                            for (int i = 0; i < headers.Count; i++)
+                            {
+                                if (headers[i] == headerName)
+                                {
+                                    return GetColumnName(i + 1); // 返回Excel列名（如"A", "B", "G"等）
+                                }
+                            }
+                        }
+                        
+                        // 如果没有找到对应的列名，返回原始标题名称
+                        return headerName;
+                    }
+                }
+                
+                // 如果没有找到 "=" 格式，尝试其他格式
+                if (exceptionMessage.Contains("超时:"))
+                {
+                    var parts = exceptionMessage.Split(new[] { "超时:" }, StringSplitOptions.None);
+                    if (parts.Length >= 2)
+                    {
+                        string headerName = parts[1].Trim();
+                        
+                        // 如果有headers数组，尝试将标题名称转换为Excel列名
+                        if (headers != null)
+                        {
+                            for (int i = 0; i < headers.Count; i++)
+                            {
+                                if (headers[i] == headerName)
+                                {
+                                    return GetColumnName(i + 1); // 返回Excel列名（如"A", "B", "G"等）
+                                }
+                            }
+                        }
+                        
+                        // 如果没有找到对应的列名，返回原始标题名称
+                        return headerName;
+                    }
+                }
+                
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      提取单元格信息时出错: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 记录失败的单元格位置到当前逻辑行的预约单状态列
+        /// </summary>
+        private void RecordFailedCellPosition(string columnName, int row)
+        {
+            try
+            {
+                // 构建单元格位置字符串，如 "G7"
+                string cellPosition = $"{columnName}{row}";
+                
+                // 查找"预约单状态"列
+                string statusColumnName = "预约单状态";
+                int statusColumnIndex = -1;
+                
+                // 在标题行中查找预约单状态列
+                for (int col = 1; col <= (currentWorksheet.Dimension?.Columns ?? 0); col++)
+                {
+                    var headerValue = currentWorksheet.Cells[1, col].Value?.ToString()?.Trim();
+                    if (headerValue == statusColumnName)
+                    {
+                        statusColumnIndex = col;
+                        break;
+                    }
+                }
+                
+                if (statusColumnIndex > 0)
+                {
+                    // 写入失败的单元格位置到预约单状态列
+                    currentWorksheet.Cells[lastRow, statusColumnIndex].Value = $"操作失败: {cellPosition}";
+                    Console.WriteLine($"      已记录失败单元格位置到预约单状态列: {cellPosition} -> 第{lastRow}行");
+                    
+                    // 立即保存Excel文件
+                    try
+                    {
+                        SaveExcelFile();
+                        Console.WriteLine($"      ✓ Excel文件已自动保存");
+                    }
+                    catch (Exception saveEx)
+                    {
+                        Console.WriteLine($"      ❌ Excel文件自动保存失败: {saveEx.Message}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"      警告：未找到'预约单状态'列，无法记录失败单元格位置");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      记录失败单元格位置时出错: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// 保存Excel文件
         /// </summary>
         private void SaveExcelFile()
@@ -1087,7 +1238,7 @@ namespace AutoFinan
             else if (cellValue.StartsWith("#"))
             {
                 Console.WriteLine($"      检测到科目输入框操作: {cellValue}");
-                await FillSubjectInput(headerName, cellValue);
+                await FillSubjectInput(columnName, headerName, cellValue, row);
             }
             // 9. 下拉框选择操作
             else if (IsDropdownField(headerName))
@@ -3104,6 +3255,79 @@ namespace AutoFinan
         }
 
         /// <summary>
+        /// 验证指定ID的元素是否在实时表格中存在
+        /// </summary>
+        private async Task<bool> ValidateElementExistsInTable(string elementId)
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试验证元素ID: {elementId}");
+
+                try
+                {
+                    // 方法1: 先在主页面查找元素
+                    var elementLocator = page.Locator($"#{elementId}");
+                    if (await elementLocator.CountAsync() > 0)
+                    {
+                        Console.WriteLine($"      在主页面找到元素: {elementId}");
+                        return true;
+                    }
+
+                    // 方法2: 在iframe中查找元素
+                    Console.WriteLine("      主页面未找到元素，开始在iframe中查找...");
+                    var frames = page.Frames;
+                    foreach (var frame in frames)
+                    {
+                        try
+                        {
+                            var iframeElementLocator = frame.Locator($"#{elementId}");
+                            if (await iframeElementLocator.CountAsync() > 0)
+                            {
+                                Console.WriteLine($"      在iframe中找到元素: {elementId}");
+                                return true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      在iframe中查找元素失败: {ex.Message}");
+                            continue;
+                        }
+                    }
+
+                    Console.WriteLine($"      第 {attemptCount} 次尝试未找到元素，等待 {retryInterval.TotalSeconds} 秒后重试...");
+                    
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        await Task.Delay(retryInterval);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+                    
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误
+            Console.WriteLine($"      ❌ 验证元素超时（1分钟）");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，未找到元素: {elementId}");
+            return false;
+        }
+
+        /// <summary>
         /// 获取科目表格HTML并解析科目-ID字典（带超时和重试机制）
         /// </summary>
         private async Task<Dictionary<string, string>> GetSubjectIdDictionary()
@@ -3249,7 +3473,7 @@ namespace AutoFinan
             return result;
         }
 
-        private async Task FillSubjectInput(string headerName, string cellValue)
+        private async Task FillSubjectInput(string columnName, string headerName, string cellValue, int row)
         {
             try
             {
@@ -3259,26 +3483,35 @@ namespace AutoFinan
                 Console.WriteLine($"      处理科目输入框: {headerName} = {cellValue}");
                 Console.WriteLine($"      提取科目名称: {subjectName}");
 
-                // 获取表格HTML并解析科目-ID字典
-                var subjectIdDict = await GetSubjectIdDictionary();
-                if (subjectIdDict == null || subjectIdDict.Count == 0)
+                // 先从Excel的标题-ID表中获取科目对应的ID
+                string elementId = GetElementId(subjectName);
+                if (string.IsNullOrEmpty(elementId))
                 {
-                    Console.WriteLine($"      警告：无法获取科目表格数据，跳过当前报销单");
+                    Console.WriteLine($"      警告：未找到科目 '{subjectName}' 对应的ID映射");
+                    
+                    // 记录失败的单元格位置到预约单状态列
+                    RecordFailedCellPosition(columnName, row);
+                    
                     await ReturnToMainPage();
-                    throw new Exception($"无法获取科目表格数据");
+                    throw new Exception($"未找到科目 '{subjectName}' 对应的ID映射");
                 }
 
-                // 检查科目名称是否在表格中存在
-                if (!subjectIdDict.ContainsKey(subjectName))
+                Console.WriteLine($"      从Excel标题-ID表找到科目ID: {subjectName} -> {elementId}");
+
+                // 验证这个ID在实时表格中是否存在对应的元素
+                bool elementExists = await ValidateElementExistsInTable(elementId);
+                if (!elementExists)
                 {
-                    Console.WriteLine($"      警告：科目 '{subjectName}' 在表格中不存在，跳过当前报销单");
+                    Console.WriteLine($"      警告：科目ID '{elementId}' 在实时表格中不存在，跳过当前报销单");
+                    
+                    // 记录失败的单元格位置到预约单状态列
+                    RecordFailedCellPosition(columnName, row);
+                    
                     await ReturnToMainPage();
-                    throw new Exception($"科目 '{subjectName}' 在表格中不存在");
+                    throw new Exception($"科目ID '{elementId}' 在实时表格中不存在");
                 }
 
-                // 从表格中获取对应的输入框ID
-                string elementId = subjectIdDict[subjectName];
-                Console.WriteLine($"      从表格中找到科目输入框ID: {subjectName} -> {elementId}");
+                Console.WriteLine($"      验证成功：科目ID '{elementId}' 在实时表格中存在");
 
                 // 存储当前科目ID，供后续金额填写使用
                 currentSubjectId = elementId;
