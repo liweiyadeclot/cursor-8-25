@@ -5,6 +5,7 @@ using OfficeOpenXml;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 
@@ -37,21 +38,22 @@ namespace AutoFinan
             Console.WriteLine("请选择要执行的程序：");
             Console.WriteLine("1. 执行查询程序（科研财务系统）");
             Console.WriteLine("2. 执行报销程序（财务报销自动化）");
+            Console.WriteLine("3. 添加用户功能（管理用户密码）");
             Console.WriteLine();
 
             int choice = 0;
-            while (choice != 1 && choice != 2)
+            while (choice != 1 && choice != 2 && choice != 3)
             {
-                Console.Write("请输入选择 (1 或 2): ");
+                Console.Write("请输入选择 (1、2 或 3): ");
                 string input = Console.ReadLine();
 
-                if (int.TryParse(input, out choice) && (choice == 1 || choice == 2))
+                if (int.TryParse(input, out choice) && (choice == 1 || choice == 2 || choice == 3))
                 {
                     break;
                 }
                 else
                 {
-                    Console.WriteLine("无效输入，请输入 1 或 2");
+                    Console.WriteLine("无效输入，请输入 1、2 或 3");
                 }
             }
 
@@ -65,11 +67,16 @@ namespace AutoFinan
                     var researchAutomation = new ResearchFinanceAutomation();
                     await RunResearchFinanceProgram(researchAutomation);
                 }
-                else
+                else if (choice == 2)
                 {
                     Console.WriteLine("=== 启动财务报销自动化程序 ===");
                     var reimbursementAutomation = new ReimbursementAutomation();
                     await reimbursementAutomation.RunAsync();
+                }
+                else if (choice == 3)
+                {
+                    Console.WriteLine("=== 启动用户管理功能 ===");
+                    await RunUserManagementProgram();
                 }
             }
             catch (Exception ex)
@@ -162,6 +169,57 @@ namespace AutoFinan
                 Console.WriteLine("科研财务系统程序结束。");
             }
         }
+
+        /// <summary>
+        /// 运行用户管理程序
+        /// </summary>
+        private static async Task RunUserManagementProgram()
+        {
+            Console.WriteLine("=== 用户管理功能 ===");
+            Console.WriteLine("请选择操作：");
+            Console.WriteLine("1. 添加新用户");
+            Console.WriteLine("2. 查看现有用户");
+            Console.WriteLine("3. 删除用户");
+            Console.WriteLine();
+
+            int choice = 0;
+            while (choice != 1 && choice != 2 && choice != 3)
+            {
+                Console.Write("请输入选择 (1、2 或 3): ");
+                string input = Console.ReadLine();
+
+                if (int.TryParse(input, out choice) && (choice == 1 || choice == 2 || choice == 3))
+                {
+                    break;
+                }
+                else
+                {
+                    Console.WriteLine("无效输入，请输入 1、2 或 3");
+                }
+            }
+
+            var userManager = new UserManager();
+
+            try
+            {
+                if (choice == 1)
+                {
+                    await userManager.AddUser();
+                }
+                else if (choice == 2)
+                {
+                    await userManager.ListUsers();
+                }
+                else if (choice == 3)
+                {
+                    await userManager.DeleteUser();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"用户管理操作失败: {ex.Message}");
+            }
+        }
     }
 
     public class ReimbursementAutomation
@@ -190,6 +248,9 @@ namespace AutoFinan
 
         private bool IsLogin;
         private int colAfterLogin;  //  去除登录操作的第一个单元格操作列
+
+
+        private string currentUserId;
         public async Task RunAsync()
         {
             Console.WriteLine("开始读取配置文件...");
@@ -286,9 +347,51 @@ namespace AutoFinan
                 currentHeaders = GetHeaders(worksheet);
                 currentPackage = package; // 保存Excel包引用
 
-                // 获取数据范围
-                int rowCount = worksheet.Dimension?.Rows ?? 0;
+                // 获取数据范围（rowCount 以“序号”列的有效行数为准）
                 int colCount = worksheet.Dimension?.Columns ?? 0;
+                int rowCount = 0;
+                try
+                {
+                    // 找到“序号”列索引
+                    int serialColIndex = -1;
+                    for (int c = 1; c <= colCount; c++)
+                    {
+                        var h = worksheet.Cells[1, c].Value?.ToString()?.Trim();
+                        if (h == "序号")
+                        {
+                            serialColIndex = c;
+                            break;
+                        }
+                    }
+
+                    if (serialColIndex > 0)
+                    {
+                        // 从第2行开始向下数，直到遇到第一个空单元格为止
+                        int lastRowInSheet = worksheet.Dimension?.Rows ?? 0;
+                        for (int r = 2; r <= lastRowInSheet; r++)
+                        {
+                            var v = worksheet.Cells[r, serialColIndex].Value?.ToString()?.Trim();
+                            if (string.IsNullOrEmpty(v))
+                            {
+                                break;
+                            }
+                            rowCount = r;
+                        }
+                        // rowCount 当前是最后一个非空行号；
+                        // 后续 for 循环是从 2 到 rowCount
+                    }
+                    else
+                    {
+                        // 找不到“序号”列则回退为整表行数
+                        rowCount = worksheet.Dimension?.Rows ?? 0;
+                        Console.WriteLine("警告：未找到‘序号’列，rowCount 回退为整表行数");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    rowCount = worksheet.Dimension?.Rows ?? 0;
+                    Console.WriteLine($"警告：按‘序号’列计算行数失败，回退为整表行数。原因: {ex.Message}");
+                }
 
                 Console.WriteLine($"数据范围: {rowCount} 行 x {colCount} 列");
 
@@ -346,6 +449,35 @@ namespace AutoFinan
                     lastRow = row;
 
                     Console.WriteLine($"\n--- 处理第 {row} 行数据 ---");
+
+                    // 检查用户ID是否匹配
+                    if (!string.IsNullOrEmpty(currentUserId))
+                    {
+                        // 获取当前行的用户ID
+                        string rowUserId = GetUserIdFromRow(row, headers, worksheet);
+                        if (!string.IsNullOrEmpty(rowUserId) && rowUserId != currentUserId)
+                        {
+                            Console.WriteLine($"      跳过第 {row} 行：用户ID不匹配（当前登录: {currentUserId}, 行用户: {rowUserId}）");
+                            
+                            // 使用GetNextLogicalRow跳转到下一个逻辑行
+                            int nextLogicalRow = GetNextLogicalRow(row, worksheet);
+                            if (nextLogicalRow > row)
+                            {
+                                Console.WriteLine($"      跳转到下一个逻辑行: {nextLogicalRow}");
+                                row = nextLogicalRow - 1; // -1 因为for循环会自动+1
+                                continue;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      没有找到下一个逻辑行，退出");
+                                return;
+                            }
+                        }
+                        else if (!string.IsNullOrEmpty(rowUserId))
+                        {
+                            Console.WriteLine($"      用户ID匹配（{rowUserId}），继续处理");
+                        }
+                    }
 
                     try
                     {
@@ -564,7 +696,7 @@ namespace AutoFinan
 
             for (int i = currentRow; i <= (workSheet.Dimension?.Rows ?? 0); i++)
             {
-                if (workSheet.Cells[i, logicIDColNum].Text != workSheet.Cells[currentRow, logicIDColNum].Text)
+                if (workSheet.Cells[i, logicIDColNum].Text != workSheet.Cells[currentRow, logicIDColNum].Text && workSheet.Cells[i, logicIDColNum] != null)
                 {
                     return i;
                 }
@@ -970,6 +1102,77 @@ namespace AutoFinan
         }
 
         /// <summary>
+        /// 从指定行获取用户ID（登录界面工号）
+        /// </summary>
+        private string GetUserIdFromRow(int row, List<string> headers, ExcelWorksheet worksheet)
+        {
+            try
+            {
+                // 查找"登录界面工号"列
+                int usernameColumnIndex = -1;
+                for (int i = 0; i < headers.Count; i++)
+                {
+                    if (headers[i] == "登录界面工号")
+                    {
+                        usernameColumnIndex = i + 1; // 转换为1-based索引
+                        break;
+                    }
+                }
+
+                if (usernameColumnIndex > 0)
+                {
+                    var username = worksheet.Cells[row, usernameColumnIndex].Value?.ToString()?.Trim();
+                    return username;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      获取第{row}行用户ID时出错: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 从当前行获取用户名（登录界面工号）
+        /// </summary>
+        private string GetUsernameFromCurrentRow()
+        {
+            try
+            {
+                if (currentWorksheet == null || currentHeaders == null)
+                {
+                    return null;
+                }
+
+                // 查找"登录界面工号"列
+                int usernameColumnIndex = -1;
+                for (int i = 0; i < currentHeaders.Count; i++)
+                {
+                    if (currentHeaders[i] == "登录界面工号")
+                    {
+                        usernameColumnIndex = i + 1; // 转换为1-based索引
+                        break;
+                    }
+                }
+
+                if (usernameColumnIndex > 0)
+                {
+                    var username = currentWorksheet.Cells[lastRow, usernameColumnIndex].Value?.ToString()?.Trim();
+                    return username;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      获取用户名时出错: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// 记录失败的单元格位置到当前逻辑行的预约单状态列
         /// </summary>
         private void RecordFailedCellPosition(string columnName, int row)
@@ -1189,6 +1392,11 @@ namespace AutoFinan
 
             Console.WriteLine($"    执行操作：{columnName}{row} - {headerName} = '{cellValue}'");
 
+            if(headerName == "登录界面工号" && IsLogin == false)
+            {
+                currentUserId = cellValue;
+            }
+
             // 1. 处理以?开头的列标题（程序自动填写）
             if (headerName.StartsWith("?"))
             {
@@ -1262,7 +1470,14 @@ namespace AutoFinan
             // 12. 一般输入框操作
             else
             {
-                Console.WriteLine($"      检测到输入框操作: {cellValue}");
+                if (headerName == "登录界面密码")
+                {
+                    Console.WriteLine($"      检测到输入框操作: [已隐藏]");
+                }
+                else
+                {
+                    Console.WriteLine($"      检测到输入框操作: {cellValue}");
+                }
                 await FillInput(headerName, cellValue);
             }
 
@@ -1281,7 +1496,41 @@ namespace AutoFinan
                     return;
                 }
 
-                Console.WriteLine($"      填写输入框: {headerName} -> {elementId} = {value}");
+                // 特殊处理：如果是登录界面密码，从密码文件中读取
+                string actualValue = value;
+                if (headerName == "登录界面密码")
+                {
+                    // 从Excel中读取用户名（登录界面工号）
+                    string username = GetUsernameFromCurrentRow();
+                    if (!string.IsNullOrEmpty(username))
+                    {
+                        var userManager = new UserManager();
+                        string password = await userManager.GetPasswordByUsername(username);
+                        if (!string.IsNullOrEmpty(password))
+                        {
+                            actualValue = password;
+                            // 不输出密码相关信息，保护隐私
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      警告：未找到用户名 '{username}' 对应的密码，使用Excel中的值");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"      警告：无法获取当前行的用户名，使用Excel中的值");
+                    }
+                }
+
+                // 如果是密码字段，不输出具体值
+                if (headerName == "登录界面密码")
+                {
+                    Console.WriteLine($"      填写输入框: {headerName} -> {elementId} = [已隐藏]");
+                }
+                else
+                {
+                    Console.WriteLine($"      填写输入框: {headerName} -> {elementId} = {actualValue}");
+                }
 
                 // 实现实际的输入框填写逻辑
                 bool filled = false;
@@ -1295,8 +1544,15 @@ namespace AutoFinan
                         var inputElement = frame.Locator($"#{elementId}").First;
                         if (await inputElement.CountAsync() > 0)
                         {
-                            await inputElement.FillAsync(value);
-                            Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {value}");
+                            await inputElement.FillAsync(actualValue);
+                            if (headerName == "登录界面密码")
+                            {
+                                Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: [已隐藏]");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {actualValue}");
+                            }
 
                             // 如果是银行卡相关字段，触发事件来弹出选择窗口
                             if (IsBankCardField(headerName))
@@ -1341,8 +1597,15 @@ namespace AutoFinan
                     try
                     {
                         await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
-                        await page.FillAsync($"#{elementId}", value);
-                        Console.WriteLine($"      在主页面成功填写输入框 {elementId}: {value}");
+                        await page.FillAsync($"#{elementId}", actualValue);
+                        if (headerName == "登录界面密码")
+                        {
+                            Console.WriteLine($"      在主页面成功填写输入框 {elementId}: [已隐藏]");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      在主页面成功填写输入框 {elementId}: {actualValue}");
+                        }
 
                         // 如果是银行卡相关字段，触发事件来弹出选择窗口
                         if (IsBankCardField(headerName))
@@ -1391,8 +1654,15 @@ namespace AutoFinan
                             var inputElement = frame.Locator($"input[name='{elementId}']").First;
                             if (await inputElement.CountAsync() > 0)
                             {
-                                await inputElement.FillAsync(value);
-                                Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {value}");
+                                await inputElement.FillAsync(actualValue);
+                                if (headerName == "登录界面密码")
+                                {
+                                    Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: [已隐藏]");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"      在iframe中通过name属性成功填写输入框 {elementId}: {actualValue}");
+                                }
 
                                 // 如果是银行卡相关字段，触发事件来弹出选择窗口
                                 if (IsBankCardField(headerName))
@@ -5295,6 +5565,257 @@ namespace AutoFinan
             if (System.Text.RegularExpressions.Regex.IsMatch(text, "^[0-9，,\\.]+$")) return false;
             if (System.Text.RegularExpressions.Regex.IsMatch(text, "^\\d{4}-\\d{2}-\\d{2}")) return false;
             return IsLikelyLabel(text);
+        }
+    }
+
+    /// <summary>
+    /// 用户管理类
+    /// </summary>
+    public class UserManager
+    {
+        private readonly string passwordFilePath;
+
+        public UserManager()
+        {
+            // 密码文件路径与Excel文件在同一目录
+            passwordFilePath = FindPasswordFilePath();
+        }
+
+        /// <summary>
+        /// 查找密码文件路径
+        /// </summary>
+        private string FindPasswordFilePath()
+        {
+            // 查找与Excel文件相同的目录
+            string[] possiblePaths = {
+                "user_passwords.json",
+                "../user_passwords.json",
+                "../../user_passwords.json",
+                "../../../user_passwords.json",
+                "../../../../user_passwords.json"
+            };
+
+            foreach (string path in possiblePaths)
+            {
+                if (File.Exists(path))
+                {
+                    return Path.GetFullPath(path);
+                }
+            }
+
+            // 如果文件不存在，使用当前目录
+            return Path.GetFullPath("user_passwords.json");
+        }
+
+        /// <summary>
+        /// 添加新用户
+        /// </summary>
+        public async Task AddUser()
+        {
+            Console.WriteLine("\n=== 添加新用户 ===");
+
+            // 获取用户名
+            Console.Write("请输入用户名: ");
+            string username = Console.ReadLine()?.Trim();
+
+            if (string.IsNullOrEmpty(username))
+            {
+                Console.WriteLine("错误：用户名不能为空");
+                return;
+            }
+
+            // 检查用户是否已存在
+            var existingUsers = await LoadUsers();
+            if (existingUsers.ContainsKey(username))
+            {
+                Console.WriteLine($"错误：用户名 '{username}' 已存在");
+                return;
+            }
+
+            // 获取密码（第一次输入）
+            Console.Write("请输入密码: ");
+            string password1 = ReadPassword();
+
+            if (string.IsNullOrEmpty(password1))
+            {
+                Console.WriteLine("错误：密码不能为空");
+                return;
+            }
+
+            // 获取密码（第二次输入确认）
+            Console.Write("请再次输入密码确认: ");
+            string password2 = ReadPassword();
+
+            if (password1 != password2)
+            {
+                Console.WriteLine("错误：两次输入的密码不一致");
+                return;
+            }
+
+            // 保存用户信息
+            existingUsers[username] = password1;
+            await SaveUsers(existingUsers);
+
+            Console.WriteLine($"✓ 用户 '{username}' 添加成功");
+        }
+
+        /// <summary>
+        /// 查看现有用户
+        /// </summary>
+        public async Task ListUsers()
+        {
+            Console.WriteLine("\n=== 现有用户列表 ===");
+
+            var users = await LoadUsers();
+
+            if (users.Count == 0)
+            {
+                Console.WriteLine("暂无用户");
+                return;
+            }
+
+            Console.WriteLine($"用户数量: {users.Count}");
+            Console.WriteLine();
+
+            foreach (var user in users)
+            {
+                Console.WriteLine($"用户名: {user.Key}");
+                Console.WriteLine($"密码: {new string('*', user.Value.Length)}");
+                Console.WriteLine();
+            }
+        }
+
+        /// <summary>
+        /// 删除用户
+        /// </summary>
+        public async Task DeleteUser()
+        {
+            Console.WriteLine("\n=== 删除用户 ===");
+
+            var users = await LoadUsers();
+
+            if (users.Count == 0)
+            {
+                Console.WriteLine("暂无用户可删除");
+                return;
+            }
+
+            Console.WriteLine("现有用户:");
+            foreach (var user in users)
+            {
+                Console.WriteLine($"- {user.Key}");
+            }
+
+            Console.Write("\n请输入要删除的用户名: ");
+            string username = Console.ReadLine()?.Trim();
+
+            if (string.IsNullOrEmpty(username))
+            {
+                Console.WriteLine("错误：用户名不能为空");
+                return;
+            }
+
+            if (!users.ContainsKey(username))
+            {
+                Console.WriteLine($"错误：用户 '{username}' 不存在");
+                return;
+            }
+
+            Console.Write($"确认删除用户 '{username}' 吗？(y/N): ");
+            string confirm = Console.ReadLine()?.Trim().ToLower();
+
+            if (confirm == "y" || confirm == "yes")
+            {
+                users.Remove(username);
+                await SaveUsers(users);
+                Console.WriteLine($"✓ 用户 '{username}' 删除成功");
+            }
+            else
+            {
+                Console.WriteLine("取消删除操作");
+            }
+        }
+
+        /// <summary>
+        /// 根据用户名获取密码
+        /// </summary>
+        public async Task<string> GetPasswordByUsername(string username)
+        {
+            var users = await LoadUsers();
+            return users.ContainsKey(username) ? users[username] : null;
+        }
+
+        /// <summary>
+        /// 加载用户信息
+        /// </summary>
+        private async Task<Dictionary<string, string>> LoadUsers()
+        {
+            try
+            {
+                if (!File.Exists(passwordFilePath))
+                {
+                    return new Dictionary<string, string>();
+                }
+
+                string json = await File.ReadAllTextAsync(passwordFilePath, Encoding.UTF8);
+                return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new Dictionary<string, string>();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"加载用户信息失败: {ex.Message}");
+                return new Dictionary<string, string>();
+            }
+        }
+
+        /// <summary>
+        /// 保存用户信息
+        /// </summary>
+        private async Task SaveUsers(Dictionary<string, string> users)
+        {
+            try
+            {
+                string json = System.Text.Json.JsonSerializer.Serialize(users, new System.Text.Json.JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
+
+                await File.WriteAllTextAsync(passwordFilePath, json, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"保存用户信息失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 安全地读取密码（不显示在屏幕上）
+        /// </summary>
+        private string ReadPassword()
+        {
+            string password = "";
+            ConsoleKeyInfo key;
+
+            do
+            {
+                key = Console.ReadKey(true);
+
+                if (key.Key != ConsoleKey.Backspace && key.Key != ConsoleKey.Enter)
+                {
+                    password += key.KeyChar;
+                    Console.Write("*");
+                }
+                else if (key.Key == ConsoleKey.Backspace && password.Length > 0)
+                {
+                    password = password.Substring(0, password.Length - 1);
+                    Console.Write("\b \b");
+                }
+            }
+            while (key.Key != ConsoleKey.Enter);
+
+            Console.WriteLine();
+            return password;
         }
     }
 }
