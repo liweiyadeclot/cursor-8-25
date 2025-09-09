@@ -1211,9 +1211,10 @@ namespace AutoFinan
                 }
 
                 // 获取所有数据行（跳过表头行）
-                // 使用更精确的选择器来查找数据行
-                var rows = targetFrame.Locator("#gridWF_YB6_2375 tbody tr:not(.jqgfirstrow)");
-                var rowCount = await rows.CountAsync();
+                // 优先选择叶节点行（有span.cell-wrapperleaf的行）
+                var leafRows = targetFrame.Locator("#gridWF_YB6_2375 tbody tr:not(.jqgfirstrow)");
+                var allRows = leafRows;
+                var rowCount = await allRows.CountAsync();
                 Console.WriteLine($"      找到 {rowCount} 行数据");
                 
                 if (rowCount == 0)
@@ -1226,31 +1227,43 @@ namespace AutoFinan
                     
                     if (altRowCount > 0)
                     {
-                        rows = altRows;
+                        allRows = altRows;
                         rowCount = altRowCount;
                     }
                 }
 
                 for (int i = 0; i < rowCount; i++)
                 {
-                    Console.WriteLine($"      正在处理第 {i + 1} 行...");
                     try
                     {
-                        var row = rows.Nth(i);
-                        var rowData = await ExtractRowData(targetFrame, row, i + 1);
-                        if (rowData != null)
+                        var row = allRows.Nth(i);
+                        
+                        // 检查是否为叶节点（有span.cell-wrapperleaf的行）
+                        var leafElement = row.Locator("td:first-child span.cell-wrapperleaf");
+                        var leafCount = await leafElement.CountAsync();
+                        
+                        if (leafCount > 0)
                         {
-                            tableData.Add(rowData);
-                            Console.WriteLine($"      第 {i + 1} 行处理成功");
+                            Console.WriteLine($"      正在处理第 {i + 1} 行（叶节点）...");
+                            var rowData = await ExtractRowData(targetFrame, row, i + 1);
+                            if (rowData != null)
+                            {
+                                tableData.Add(rowData);
+                                Console.WriteLine($"      第 {i + 1} 行处理成功");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      第 {i + 1} 行提取失败，跳过该行");
+                            }
                         }
                         else
                         {
-                            Console.WriteLine($"      第 {i + 1} 行提取失败，但继续处理");
+                            Console.WriteLine($"      第 {i + 1} 行不是叶节点，跳过");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"      第 {i + 1} 行处理出错: {ex.Message}，但继续处理下一行");
+                        Console.WriteLine($"      提取第 {i + 1} 行数据时出错: {ex.Message}，跳过该行");
                     }
                 }
 
@@ -1273,24 +1286,43 @@ namespace AutoFinan
             {
                 var rowData = new Dictionary<string, string>();
 
-                // 提取报销项名称（第一个td中的span.cell-wrapper或span.cell-wrapperleaf）
-                var expenseNameElement = row.Locator("td:first-child span.cell-wrapper").First;
-                
-                // 使用 try-catch 来处理超时，而不是设置全局超时
+                // 提取报销项名称（优先获取span.cell-wrapperleaf，如果没有则获取span.cell-wrapper）
                 string expenseName = "";
                 try
                 {
-                    expenseName = await expenseNameElement.TextContentAsync();
+                    // 先尝试获取叶节点的名称
+                    var leafElement = row.Locator("td:first-child span.cell-wrapperleaf");
+                    var leafCount = await leafElement.CountAsync();
+                    if (leafCount > 0)
+                    {
+                        expenseName = await leafElement.First.TextContentAsync();
+                    }
+                    else
+                    {
+                        // 如果没有叶节点，尝试获取父节点名称
+                        var wrapperElement = row.Locator("td:first-child span.cell-wrapper");
+                        var wrapperCount = await wrapperElement.CountAsync();
+                        if (wrapperCount > 0)
+                        {
+                            expenseName = await wrapperElement.First.TextContentAsync();
+                        }
+                    }
                 }
                 catch (TimeoutException)
                 {
                     Console.WriteLine($"      第 {rowIndex} 行：获取报销项名称超时");
-                    expenseName = "未知报销项";
+                    return null;
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {rowIndex} 行：获取报销项名称出错: {ex.Message}");
+                    return null;
+                }
+                
                 if (string.IsNullOrEmpty(expenseName))
                 {
                     Console.WriteLine($"      第 {rowIndex} 行：未找到报销项名称");
-                    expenseName = "未知报销项";
+                    return null;
                 }
                 expenseName = expenseName.Trim();
                 rowData["报销项"] = expenseName;
@@ -1305,7 +1337,7 @@ namespace AutoFinan
                 catch (TimeoutException)
                 {
                     Console.WriteLine($"      第 {rowIndex} 行：获取金额输入框超时");
-                    inputCount = 0;
+                    return null;
                 }
                 
                 if (inputCount > 0)
@@ -1352,7 +1384,15 @@ namespace AutoFinan
             {
                 Console.WriteLine($"      第 {rowIndex} 行：开始悬停操作...");
                 
-                // 先确保提示框是隐藏的
+                // 先尝试获取title属性（有些输入框可能直接在title中显示余额信息）
+                var title = await inputElement.GetAttributeAsync("title");
+                if (!string.IsNullOrEmpty(title) && !title.Trim().Equals(""))
+                {
+                    Console.WriteLine($"      第 {rowIndex} 行：从title获取: {title}");
+                    return title.Trim();
+                }
+                
+                // 如果title为空，尝试悬停操作
                 var tipContent = frame.Locator("#tiptip_content");
                 var tipHolder = frame.Locator("#tiptip_holder");
                 
@@ -1364,7 +1404,7 @@ namespace AutoFinan
                 // 鼠标悬停在输入框上
                 await inputElement.HoverAsync();
                 Console.WriteLine($"      第 {rowIndex} 行：已执行悬停操作");
-                await Task.Delay(1000); // 增加等待时间
+                await Task.Delay(2000); // 增加等待时间让提示框显示
 
                 // 检查提示框是否显示
                 if (tipHolderCount > 0)
@@ -1389,8 +1429,36 @@ namespace AutoFinan
                 }
 
                 // 如果提示框没有显示，尝试其他方法
-                Console.WriteLine($"      第 {rowIndex} 行：悬停未显示提示框，尝试获取title属性");
-                var title = await inputElement.GetAttributeAsync("title");
+                Console.WriteLine($"      第 {rowIndex} 行：悬停未显示提示框，尝试其他方法");
+                
+                // 尝试点击输入框来触发提示框
+                try
+                {
+                    await inputElement.ClickAsync();
+                    await Task.Delay(1000);
+                    
+                    if (tipHolderCount > 0)
+                    {
+                        var tipDisplay = await tipHolder.GetAttributeAsync("style");
+                        if (string.IsNullOrEmpty(tipDisplay) || !tipDisplay.Contains("display: none"))
+                        {
+                            if (tipContentCount > 0)
+                            {
+                                var balanceText = await tipContent.TextContentAsync();
+                                if (!string.IsNullOrEmpty(balanceText))
+                                {
+                                    var cleanBalance = balanceText.Trim();
+                                    Console.WriteLine($"      第 {rowIndex} 行点击获取余额: {cleanBalance}");
+                                    return cleanBalance;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {rowIndex} 行：点击操作失败: {ex.Message}");
+                }
                 if (!string.IsNullOrEmpty(title))
                 {
                     Console.WriteLine($"      第 {rowIndex} 行：从title获取: {title}");
