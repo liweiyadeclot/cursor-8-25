@@ -964,6 +964,15 @@ namespace AutoFinan
                 // 4. 点击下一步按钮
                 await ClickNextStepButton();
 
+                // 4.1 检测是否出现“可用余额不足”弹框并处理
+                var handledBlocked = await HandleInsufficientBalanceDialog();
+                if (handledBlocked)
+                {
+                    Console.WriteLine($"      检测到余额不足提示，已点击确定，跳过本项目");
+                    Console.WriteLine($"      项目 {project.ProjectNumber} 处理完成");
+                    return;
+                }
+
                 // 5. 提取表格数据
                 try
                 {
@@ -975,6 +984,9 @@ namespace AutoFinan
                     {
                         Console.WriteLine($"        报销项: {row["报销项"]}, 余额: {row["余额"]}");
                     }
+                    
+                    // 6. 将表格数据写入Excel文件
+                    await WriteTableDataToExcel(tableData, excelRow);
                 }
                 catch (Exception ex)
                 {
@@ -987,6 +999,165 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      处理项目 {project.ProjectNumber} 失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 处理"项目可用余额不足，不能进行申报"弹框，点击"确定"按钮
+        /// 返回 true 表示检测到并已处理弹框；false 表示未检测到弹框
+        /// </summary>
+        private async Task<bool> HandleInsufficientBalanceDialog()
+        {
+            try
+            {
+                Console.WriteLine("      开始检查余额不足弹框...");
+                
+                // 最长等待5秒，每500ms轮询一次
+                var start = DateTime.Now;
+                var timeout = TimeSpan.FromSeconds(5);
+                while (DateTime.Now - start < timeout)
+                {
+                    // 1. 先在主页面查找弹框
+                    var dialog = page.Locator("div.layui-layer.layui-layer-dialog");
+                    var dialogCount = await dialog.CountAsync();
+                    if (dialogCount > 0)
+                    {
+                        Console.WriteLine("      在主页面发现弹框");
+                        return await ClickDialogButtonOnPage(page, "主页面");
+                    }
+                    
+                    // 2. 在所有iframe中查找弹框
+                    var frames = page.Frames;
+                    Console.WriteLine($"      在 {frames.Count} 个iframe中查找弹框...");
+                    
+                    for (int i = 0; i < frames.Count; i++)
+                    {
+                        var frame = frames[i];
+                        try
+                        {
+                            var frameDialog = frame.Locator("div.layui-layer.layui-layer-dialog");
+                            var frameDialogCount = await frameDialog.CountAsync();
+                            if (frameDialogCount > 0)
+                            {
+                                Console.WriteLine($"      在iframe {i} 中发现弹框");
+                                return await ClickDialogButton(frame, $"iframe {i}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"      在iframe {i} 中查找弹框时出错: {ex.Message}");
+                        }
+                    }
+
+                    // 若未检测到，等待后继续轮询
+                    await Task.Delay(500);
+                }
+
+                Console.WriteLine("      未检测到余额不足弹框");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      处理余额不足提示框时出错: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 在主页面中点击弹框按钮
+        /// </summary>
+        private async Task<bool> ClickDialogButtonOnPage(IPage page, string location)
+        {
+            try
+            {
+                // 获取弹框内容
+                var content = page.Locator("div.layui-layer.layui-layer-dialog .layui-layer-content");
+                string text = string.Empty;
+                try 
+                { 
+                    text = (await content.First.TextContentAsync())?.Trim() ?? string.Empty; 
+                } 
+                catch { }
+                Console.WriteLine($"      在{location}发现提示框: {text}");
+
+                // 点击"确定"按钮
+                var okBtn = page.Locator("div.layui-layer.layui-layer-dialog .layui-layer-btn .layui-layer-btn0");
+                if (await okBtn.CountAsync() > 0)
+                {
+                    await okBtn.First.ClickAsync();
+                    Console.WriteLine($"      在{location}已点击提示框'确定'");
+                    await Task.Delay(500);
+                    return true;
+                }
+                else
+                {
+                    // 有些版本使用关闭图标
+                    var closeBtn = page.Locator("div.layui-layer.layui-layer-dialog .layui-layer-close");
+                    if (await closeBtn.CountAsync() > 0)
+                    {
+                        await closeBtn.First.ClickAsync();
+                        Console.WriteLine($"      在{location}已点击提示框关闭按钮");
+                        await Task.Delay(500);
+                        return true;
+                    }
+                }
+                
+                Console.WriteLine($"      在{location}未找到可点击的弹框按钮");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      在{location}点击弹框按钮时出错: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 在iframe中点击弹框按钮
+        /// </summary>
+        private async Task<bool> ClickDialogButton(IFrame frame, string location)
+        {
+            try
+            {
+                // 获取弹框内容
+                var content = frame.Locator("div.layui-layer.layui-layer-dialog .layui-layer-content");
+                string text = string.Empty;
+                try 
+                { 
+                    text = (await content.First.TextContentAsync())?.Trim() ?? string.Empty; 
+                } 
+                catch { }
+                Console.WriteLine($"      在{location}发现提示框: {text}");
+
+                // 点击"确定"按钮
+                var okBtn = frame.Locator("div.layui-layer.layui-layer-dialog .layui-layer-btn .layui-layer-btn0");
+                if (await okBtn.CountAsync() > 0)
+                {
+                    await okBtn.First.ClickAsync();
+                    Console.WriteLine($"      在{location}已点击提示框'确定'");
+                    await Task.Delay(500);
+                    return true;
+                }
+                else
+                {
+                    // 有些版本使用关闭图标
+                    var closeBtn = frame.Locator("div.layui-layer.layui-layer-dialog .layui-layer-close");
+                    if (await closeBtn.CountAsync() > 0)
+                    {
+                        await closeBtn.First.ClickAsync();
+                        Console.WriteLine($"      在{location}已点击提示框关闭按钮");
+                        await Task.Delay(500);
+                        return true;
+                    }
+                }
+                
+                Console.WriteLine($"      在{location}未找到可点击的弹框按钮");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      在{location}点击弹框按钮时出错: {ex.Message}");
+                return false;
             }
         }
 
@@ -1206,8 +1377,20 @@ namespace AutoFinan
 
                 if (targetFrame == null)
                 {
-                    Console.WriteLine("      未找到目标表格 #gridWF_YB6_2375，跳过表格数据提取");
-                    return new List<Dictionary<string, string>>(); // 返回空列表而不是抛出异常
+                    Console.WriteLine("      未找到目标表格 #gridWF_YB6_2375，检查是否有余额不足弹框...");
+                    
+                    // 检查是否有余额不足的弹框
+                    var handledBlocked = await HandleInsufficientBalanceDialog();
+                    if (handledBlocked)
+                    {
+                        Console.WriteLine("      检测到余额不足弹框并已处理，返回空数据");
+                        return new List<Dictionary<string, string>>();
+                    }
+                    else
+                    {
+                        Console.WriteLine("      未检测到余额不足弹框，可能是其他原因导致表格未加载");
+                        return new List<Dictionary<string, string>>();
+                    }
                 }
 
                 // 获取所有数据行（跳过表头行）
@@ -1506,6 +1689,75 @@ namespace AutoFinan
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 将表格数据写入Excel文件
+        /// </summary>
+        private async Task WriteTableDataToExcel(List<Dictionary<string, string>> tableData, int excelRow)
+        {
+            try
+            {
+                Console.WriteLine($"      开始将表格数据写入Excel第{excelRow}行...");
+                
+                // 查找Excel文件
+                string excelPath = FindExcelFile("420财务050823.xlsx");
+                if (string.IsNullOrEmpty(excelPath))
+                {
+                    Console.WriteLine("      警告：未找到Excel文件，无法写入数据");
+                    return;
+                }
+
+                // 格式化表格数据为字符串
+                string formattedData = FormatTableDataForExcel(tableData);
+                
+                // 写入Excel文件
+                using (var package = new ExcelPackage(new FileInfo(excelPath)))
+                {
+                    var worksheet = package.Workbook.Worksheets["0-科目余额"];
+                    if (worksheet == null)
+                    {
+                        Console.WriteLine("      警告：未找到0-科目余额工作表");
+                        return;
+                    }
+
+                    // 写入第2列（科目余额列）
+                    worksheet.Cells[excelRow, 2].Value = formattedData;
+                    
+                    // 保存文件
+                    await package.SaveAsync();
+                    Console.WriteLine($"      成功将表格数据写入Excel第{excelRow}行第2列");
+                    Console.WriteLine($"      数据内容：{formattedData.Substring(0, Math.Min(100, formattedData.Length))}...");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      写入Excel文件失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 格式化表格数据为Excel单元格内容
+        /// </summary>
+        private string FormatTableDataForExcel(List<Dictionary<string, string>> tableData)
+        {
+            if (tableData == null || tableData.Count == 0)
+            {
+                return "无数据";
+            }
+
+            var formattedLines = new List<string>();
+            foreach (var row in tableData)
+            {
+                string expenseName = row.ContainsKey("报销项") ? row["报销项"] : "未知";
+                string balance = row.ContainsKey("余额") ? row["余额"] : "未获取到余额信息";
+                
+                // 格式化每一行：报销项: 余额信息
+                formattedLines.Add($"{expenseName}: {balance}");
+            }
+
+            // 用换行符连接所有行
+            return string.Join("\n", formattedLines);
         }
     }
 
