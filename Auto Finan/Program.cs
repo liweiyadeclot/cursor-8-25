@@ -617,6 +617,13 @@ namespace AutoFinan
                                 Console.WriteLine($"❌ Excel文件保存失败: {saveEx.Message}");
                             }
                             Console.WriteLine($"=== 报销单处理完成，继续处理下一个 ===\n");
+                            
+                            // 跳转到下一个报销单的起始行
+                            if (nextReimbursementRow > row)
+                            {
+                                Console.WriteLine($"找到下一个报销单在第 {nextReimbursementRow} 行，跳转到该行");
+                                row = nextReimbursementRow - 1; // 减1是因为for循环会自动+1
+                            }
                         }
                     }
                     catch (TimeoutException ex)
