@@ -64,9 +64,8 @@ namespace AutoFinan
             {
                 if (choice == 1)
                 {
-                    Console.WriteLine("=== 启动科研财务系统查询程序 ===");
-                    var researchAutomation = new ResearchFinanceAutomation();
-                    await RunResearchFinanceProgram(researchAutomation);
+                    Console.WriteLine("=== 科研财务系统查询功能已移除 ===");
+                    Console.WriteLine("该功能已被整合到其他模块中，请选择其他选项。");
                 }
                 else if (choice == 2)
                 {
@@ -506,68 +505,80 @@ namespace AutoFinan
                             Console.WriteLine($"开始处理第一个报销单（第 {row} 行）");
                         }
 
-                        // 第二层循环：从左至右，处理当前行的每个单元格
-                        Console.WriteLine($"开始第二层循环：处理第 {row} 行的单元格");
+                    // 第二层循环：从左至右，处理当前行的每个单元格
+                    Console.WriteLine($"开始第二层循环：处理第 {row} 行的单元格");
                         bool isThisLineHasBeenHandled = false;
 
                         int logicalBeginCol = IsLogin ? colAfterLogin : 1;
 
                         for (int col = logicalBeginCol; col <= colCount; col++)
+                    {
+                        var cellValue = worksheet.Cells[row, col].Value?.ToString() ?? "";
+                        var columnName = GetColumnName(col);
+                        var headerName = headers[col - 1];
+                        Console.WriteLine($"  读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
+
+                        // 检查是否遇到子序列开始标记
+                        Console.WriteLine($"      当前列 {col}，子序列开始列列表: [{string.Join(", ", subsequenceStartColumns)}]，是否包含当前列: {subsequenceStartColumns.Contains(col)}");
+                        if (subsequenceStartColumns.Contains(col))
                         {
-                            var cellValue = worksheet.Cells[row, col].Value?.ToString() ?? "";
-                            var columnName = GetColumnName(col);
-                            var headerName = headers[col - 1];
-                            Console.WriteLine($"  读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
+                            Console.WriteLine($"      检查子序列开始标记：当前列 {col}，单元格值 '{cellValue}'，第一种子序列标记 '{SubsequenceMarker}'，第二种子序列标记 '{SubsequenceMarker2}'");
 
-                            // 检查是否遇到子序列开始标记
-                            Console.WriteLine($"      当前列 {col}，子序列开始列列表: [{string.Join(", ", subsequenceStartColumns)}]，是否包含当前列: {subsequenceStartColumns.Contains(col)}");
-                            if (subsequenceStartColumns.Contains(col))
+                            if (cellValue == SubsequenceMarker)
                             {
-                                Console.WriteLine($"      检查子序列开始标记：当前列 {col}，单元格值 '{cellValue}'，第一种子序列标记 '{SubsequenceMarker}'，第二种子序列标记 '{SubsequenceMarker2}'");
+                                Console.WriteLine($"检测到第一种子序列开始标记，进入子序列处理逻辑");
+                                // 找到对应的子序列结束列
+                                int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                                int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
 
-                                if (cellValue == SubsequenceMarker)
+                                // 如果子序列处理返回了下一行的行号，继续处理那一行
+                                if (nextRow > 0)
                                 {
-                                    Console.WriteLine($"检测到第一种子序列开始标记，进入子序列处理逻辑");
-                                    // 找到对应的子序列结束列
-                                    int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
-                                    int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
+                                    Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
+                                    await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
 
-                                    // 如果子序列处理返回了下一行的行号，继续处理那一行
-                                    if (nextRow > 0)
-                                    {
-                                        Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
-                                        await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
-
-                                        // 更新外层循环的行号，跳过已经处理过的行
-                                        row = nextRow;
-                                    }
-                                    break; // 跳出当前行的列循环，继续处理下一行
+                                    // 更新外层循环的行号，跳过已经处理过的行
+                                    row = nextRow;
                                 }
-                                else if (cellValue == SubsequenceMarker2)
-                                {
-                                    Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
-                                    // 找到对应的子序列结束列
-                                    int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
-                                    int nextRow = await ProcessSecondSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
-
-                                    // 如果子序列处理返回了下一行的行号，继续处理那一行
-                                    if (nextRow > 0)
-                                    {
-                                        Console.WriteLine($"第二种子序列处理完成，继续处理第 {nextRow} 行");
-                                        await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
-
-                                        // 更新外层循环的行号，跳过已经处理过的行
-                                        row = nextRow;
-                                    }
-                                    break; // 跳出当前行的列循环，继续处理下一行
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"      子序列开始列的值 '{cellValue}' 不匹配任何子序列标记");
-                                }
+                                break; // 跳出当前行的列循环，继续处理下一行
                             }
+                            else if (cellValue == SubsequenceMarker2)
+                            {
+                                    // 在进入第二种子序列处理之前，先检查当前行是否也是子序列结束
+                                int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                                    if (subsequenceEndColIndex > 0)
+                                    {
+                                        var currentRowSubsequenceEndValue = worksheet.Cells[row, subsequenceEndColIndex].Value?.ToString() ?? "";
+                                        if (currentRowSubsequenceEndValue == SubsequenceMarker2)
+                                        {
+                                            Console.WriteLine($"检测到第 {row} 行既是第二种子序列开始也是结束，直接处理该行");
+                                            // 直接处理当前行的子序列数据，不进入循环
+                                            await ProcessSingleRowSubsequence(worksheet, headers, row, col, subsequenceEndColIndex);
+                                            break; // 跳出当前行的列循环，继续处理下一行
+                                        }
+                                    }
+                                    
+                                    Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
+                                int nextRow = await ProcessSecondSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
 
-                            // 如果不是子序列开始列，则正常处理单元格
+                                // 如果子序列处理返回了下一行的行号，继续处理那一行
+                                if (nextRow > 0)
+                                {
+                                    Console.WriteLine($"第二种子序列处理完成，继续处理第 {nextRow} 行");
+                                    await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
+
+                                    // 更新外层循环的行号，跳过已经处理过的行
+                                    row = nextRow;
+                                }
+                                break; // 跳出当前行的列循环，继续处理下一行
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      子序列开始列的值 '{cellValue}' 不匹配任何子序列标记");
+                            }
+                        }
+
+                        // 如果不是子序列开始列，则正常处理单元格
                             if (!subsequenceStartColumns.Contains(col) && (!string.IsNullOrEmpty(cellValue) || headers[col - 1].StartsWith("?")))
                             {
                                 if (headerName == "预约单状态" && cellValue == "已预约")
@@ -583,12 +594,12 @@ namespace AutoFinan
                                 {
                                     colAfterLogin = col;
                                 }
-                                await ProcessCell(columnName, row, headerName, cellValue);
-                            }
+                            await ProcessCell(columnName, row, headerName, cellValue);
                         }
+                    }
                         //if (isThisLineHasBeenHandled)
                         //    break;
-                        Console.WriteLine($"第 {row} 行数据处理完成");
+                    Console.WriteLine($"第 {row} 行数据处理完成");
 
                         // 检查当前报销单是否处理完成
                         int nextReimbursementRow = GetNextLogicalRow(row, worksheet);
@@ -871,13 +882,53 @@ namespace AutoFinan
                 subsequenceRowIndex++;
             }
 
-            Console.WriteLine("=== 第二种子序列处理逻辑结束 ===");
+            // 如果循环结束但没有找到子序列结束标记，说明已经处理到工作表末尾
+            Console.WriteLine("已处理到工作表末尾，未找到第二种子序列结束标记");
 
             // 重置第二种子序列标记
             isInSecondSubsequence = false;
             subsequenceRowIndex = 0;
 
-            return totalRows + 1; // 如果没有找到子序列结束标记，返回下一行
+            return totalRows + 1; // 返回下一行继续处理
+        }
+
+        /// <summary>
+        /// 处理单行的子序列数据（既是开始也是结束的情况）
+        /// </summary>
+        private async Task ProcessSingleRowSubsequence(ExcelWorksheet worksheet, List<string> headers, int row, int subsequenceStartColIndex, int subsequenceEndColIndex)
+        {
+            Console.WriteLine($"\n=== 处理单行子序列数据（第 {row} 行）===");
+            
+            // 设置第二种子序列标记
+            isInSecondSubsequence = true;
+            subsequenceRowIndex = 0;
+
+            // 只处理子序列范围内的列（从子序列开始列的下一列到子序列结束列的前一列）
+            int startCol = subsequenceStartColIndex + 1; // 从子序列开始列的下一列开始
+            int endCol = subsequenceEndColIndex > 0 ? subsequenceEndColIndex - 1 : headers.Count; // 到子序列结束列的前一列结束
+
+            Console.WriteLine($"    单行子序列处理范围：从列 {GetColumnName(startCol)} 到列 {GetColumnName(endCol)}");
+
+            // 处理子序列范围内的列（从左至右）
+            for (int col = startCol; col <= endCol; col++)
+            {
+                var cellValue = worksheet.Cells[row, col].Value?.ToString() ?? "";
+                var columnName = GetColumnName(col);
+                var headerName = headers[col - 1];
+
+                Console.WriteLine($"    单行子序列处理：读取单元格 {columnName}{row}，列标题: {headerName}，值: '{cellValue}'");
+
+                if (!string.IsNullOrEmpty(cellValue) || headerName.StartsWith("?"))
+                {
+                    await ProcessCell(columnName, row, headerName, cellValue);
+                }
+            }
+
+            Console.WriteLine($"单行子序列第 {row} 行处理完成");
+            
+            // 重置第二种子序列标记
+            isInSecondSubsequence = false;
+            subsequenceRowIndex = 0;
         }
 
         /// <summary>
@@ -1455,6 +1506,12 @@ namespace AutoFinan
                 Console.WriteLine($"      检测到科目输入框操作: {cellValue}");
                 await FillSubjectInput(columnName, headerName, cellValue, row);
             }
+            // 8.5. 特殊操作（以!开头的列名）
+            else if (headerName.StartsWith("!"))
+            {
+                Console.WriteLine($"      检测到特殊操作: {headerName} = {cellValue}");
+                await ProcessSpecialOperation(headerName, cellValue);
+            }
             // 9. 下拉框选择操作
             else if (IsDropdownField(headerName))
             {
@@ -1481,15 +1538,479 @@ namespace AutoFinan
                 {
                     Console.WriteLine($"      检测到输入框操作: [已隐藏]");
                 }
-                else
-                {
-                    Console.WriteLine($"      检测到输入框操作: {cellValue}");
+            else
+            {
+                Console.WriteLine($"      检测到输入框操作: {cellValue}");
                 }
                 await FillInput(headerName, cellValue);
             }
 
             // 模拟异步操作
             await Task.Delay(100);
+        }
+
+        /// <summary>
+        /// 处理特殊操作（以!开头的列名）
+        /// </summary>
+        private async Task ProcessSpecialOperation(string headerName, string cellValue)
+        {
+            try
+            {
+                // 只有当单元格有内容时才执行操作
+                if (string.IsNullOrEmpty(cellValue))
+                {
+                    Console.WriteLine($"      特殊操作 {headerName} 的单元格内容为空，跳过处理");
+                    return;
+                }
+
+                switch (headerName)
+                {
+                    case "!校外人员开户行":
+                        Console.WriteLine($"      执行校外人员开户行选择逻辑: {cellValue}");
+                        await ProcessBankAccountSelection(cellValue);
+                        break;
+                    default:
+                        Console.WriteLine($"      未知的特殊操作: {headerName}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      处理特殊操作失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 处理银行账号选择逻辑
+        /// </summary>
+        private async Task ProcessBankAccountSelection(string cellValue)
+        {
+            try
+            {
+                Console.WriteLine($"      开始银行账号选择流程，参数: {cellValue}");
+                
+                // 第一步：点击开户行选择按钮
+                await ClickBankAccountButton();
+                
+                // 等待对话框加载
+                await Task.Delay(2000);
+                
+                // 第二步：在开户行选择iframe中输入信息并查询
+                await FillBankAccountSearchAndQuery(cellValue);
+                
+                Console.WriteLine($"      银行账号选择流程完成");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      银行账号选择流程失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 在开户行选择iframe中填写信息并查询
+        /// </summary>
+        private async Task FillBankAccountSearchAndQuery(string searchValue)
+        {
+            try
+            {
+                Console.WriteLine($"      开始填写银行账号搜索信息: {searchValue}");
+                
+                // 查找开户行选择iframe
+                var bankAccountFrame = await FindBankAccountSelectionFrame();
+                if (bankAccountFrame == null)
+                {
+                    Console.WriteLine($"      未找到开户行选择iframe");
+                    return;
+                }
+                
+                // 填写搜索信息
+                await FillBankAccountSearchInput(bankAccountFrame, searchValue);
+                
+                // 点击查询按钮
+                await ClickBankAccountQueryButton(bankAccountFrame);
+                
+                // 第三步：选择表格第一行并点击确定
+                await SelectFirstRowAndConfirm(bankAccountFrame);
+                
+                Console.WriteLine($"      银行账号搜索和查询完成");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      银行账号搜索和查询失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 查找开户行选择iframe
+        /// </summary>
+        private async Task<IFrame> FindBankAccountSelectionFrame()
+        {
+            try
+            {
+                Console.WriteLine($"      开始查找开户行选择iframe...");
+                
+                var frames = page.Frames;
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    var frame = frames[i];
+                    try
+                    {
+                        // 查找开户行选择输入框，如果存在说明这是开户行选择iframe
+                        var searchInput = frame.Locator("#formWF_YB6_20262_d-name").First;
+                        if (await searchInput.CountAsync() > 0)
+                        {
+                            Console.WriteLine($"      在iframe {i} 中找到开户行选择输入框");
+                            return frame;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe {i} 中查找开户行选择输入框失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                Console.WriteLine($"      未找到包含开户行选择输入框的iframe");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      查找开户行选择iframe失败: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 填写银行账号搜索输入框
+        /// </summary>
+        private async Task FillBankAccountSearchInput(IFrame frame, string searchValue)
+        {
+            try
+            {
+                Console.WriteLine($"      开始填写银行账号搜索输入框: {searchValue}");
+                
+                var searchInput = frame.Locator("#formWF_YB6_20262_d-name").First;
+                if (await searchInput.CountAsync() > 0)
+                {
+                    // 清空输入框
+                    await searchInput.ClearAsync();
+                    await Task.Delay(500);
+                    
+                    // 填写搜索内容
+                    await searchInput.FillAsync(searchValue);
+                    await Task.Delay(500);
+                    
+                    Console.WriteLine($"      成功填写银行账号搜索输入框: {searchValue}");
+                }
+                else
+                {
+                    Console.WriteLine($"      未找到银行账号搜索输入框 #formWF_YB6_20262_d-name");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      填写银行账号搜索输入框失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 点击银行账号查询按钮
+        /// </summary>
+        private async Task ClickBankAccountQueryButton(IFrame frame)
+        {
+            try
+            {
+                Console.WriteLine($"      开始点击银行账号查询按钮...");
+                
+                // 查找查询按钮
+                var queryButton = frame.Locator("button[btnname='查询']").First;
+                if (await queryButton.CountAsync() > 0)
+                {
+                    await queryButton.ClickAsync();
+                    await Task.Delay(1000);
+                    Console.WriteLine($"      成功点击银行账号查询按钮");
+                }
+                else
+                {
+                    Console.WriteLine($"      未找到银行账号查询按钮 (btnname='查询')");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击银行账号查询按钮失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 选择表格第一行并点击确定按钮
+        /// </summary>
+        private async Task SelectFirstRowAndConfirm(IFrame frame)
+        {
+            try
+            {
+                Console.WriteLine($"      开始选择表格第一行并确认...");
+                
+                // 等待表格加载
+                await Task.Delay(2000);
+                
+                // 选择表格第一行
+                await SelectFirstTableRow(frame);
+                
+                // 点击确定按钮
+                await ClickConfirmButton(frame);
+                
+                // 等待1秒
+                await Task.Delay(1000);
+                
+                Console.WriteLine($"      表格第一行选择和确认完成");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      选择表格第一行并确认失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 选择表格第一行
+        /// </summary>
+        private async Task SelectFirstTableRow(IFrame frame)
+        {
+            try
+            {
+                Console.WriteLine($"      开始选择表格第一行...");
+                
+                // 查找表格
+                var table = frame.Locator("#gridWF_YB6_20260").First;
+                if (await table.CountAsync() > 0)
+                {
+                    Console.WriteLine($"      找到银行账号选择表格 #gridWF_YB6_20260");
+                    
+                    // 查找表格中的所有数据行（排除表头行）
+                    var dataRows = table.Locator("tbody tr:not(.jqgfirstrow)");
+                    var rowCount = await dataRows.CountAsync();
+                    Console.WriteLine($"      表格中共有 {rowCount} 行数据");
+                    
+                    if (rowCount > 0)
+                    {
+                        // 选择第一行数据
+                        var firstDataRow = dataRows.First;
+                        
+                        // 检查行是否可见
+                        var isVisible = await firstDataRow.IsVisibleAsync();
+                        Console.WriteLine($"      第一行数据是否可见: {isVisible}");
+                        
+                        if (isVisible)
+                        {
+                            // 点击第一行进行选择
+                            await firstDataRow.ClickAsync();
+                            await Task.Delay(500);
+                            Console.WriteLine($"      成功选择表格第一行数据");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      第一行数据不可见，尝试其他方法...");
+                            
+                            // 尝试使用JavaScript点击
+                            try
+                            {
+                                await firstDataRow.EvaluateAsync("element => element.click()");
+                                await Task.Delay(500);
+                                Console.WriteLine($"      通过JavaScript成功选择表格第一行");
+                            }
+                            catch (Exception jsEx)
+                            {
+                                Console.WriteLine($"      JavaScript点击也失败: {jsEx.Message}");
+                                
+                                // 尝试选择第二行
+                                if (rowCount > 1)
+                                {
+                                    var secondRow = dataRows.Nth(1);
+                                    var secondVisible = await secondRow.IsVisibleAsync();
+                                    if (secondVisible)
+                                    {
+                                        await secondRow.ClickAsync();
+                                        await Task.Delay(500);
+                                        Console.WriteLine($"      成功选择表格第二行数据");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"      第二行也不可见，无法选择任何行");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"      表格中没有找到数据行");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"      未找到银行账号选择表格 #gridWF_YB6_20260");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      选择表格第一行失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 点击确定按钮
+        /// </summary>
+        private async Task ClickConfirmButton(IFrame frame)
+        {
+            try
+            {
+                Console.WriteLine($"      开始点击确定按钮...");
+                
+                bool clicked = false;
+                
+                // 方法1：通过class查找确定按钮
+                try
+                {
+                    var confirmButtonByClass = frame.Locator("button.ui-button.ui-widget.ui-state-default.ui-corner-all.ui-button-text-only").First;
+                    if (await confirmButtonByClass.CountAsync() > 0)
+                    {
+                        // 检查按钮文本是否为"确定"
+                        var buttonText = await confirmButtonByClass.TextContentAsync();
+                        if (buttonText != null && buttonText.Trim() == "确定")
+                        {
+                            await confirmButtonByClass.ClickAsync();
+                            await Task.Delay(500);
+                            Console.WriteLine($"      通过class成功点击确定按钮");
+                            clicked = true;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      找到按钮但文本不是'确定': {buttonText}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      通过class查找确定按钮失败: {ex.Message}");
+                }
+                
+                // 方法2：如果方法1失败，尝试通过btnname查找
+                if (!clicked)
+                {
+                    try
+                    {
+                        var confirmButtonByBtnname = frame.Locator("button[btnname='确定']").First;
+                        if (await confirmButtonByBtnname.CountAsync() > 0)
+                        {
+                            await confirmButtonByBtnname.ClickAsync();
+                            await Task.Delay(500);
+                            Console.WriteLine($"      通过btnname成功点击确定按钮");
+                            clicked = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      通过btnname查找确定按钮失败: {ex.Message}");
+                    }
+                }
+                
+                // 方法3：如果前两种方法都失败，尝试查找所有按钮并匹配文本
+                if (!clicked)
+                {
+                    try
+                    {
+                        var allButtons = frame.Locator("button");
+                        var buttonCount = await allButtons.CountAsync();
+                        Console.WriteLine($"      找到 {buttonCount} 个按钮，尝试匹配'确定'文本");
+                        
+                        for (int i = 0; i < buttonCount; i++)
+                        {
+                            var button = allButtons.Nth(i);
+                            var text = await button.TextContentAsync();
+                            if (text != null && text.Trim() == "确定")
+                            {
+                                await button.ClickAsync();
+                                await Task.Delay(500);
+                                Console.WriteLine($"      通过文本匹配成功点击确定按钮 (第{i+1}个按钮)");
+                                clicked = true;
+                                break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      通过文本匹配查找确定按钮失败: {ex.Message}");
+                    }
+                }
+                
+                if (!clicked)
+                {
+                    Console.WriteLine($"      最终失败：无法找到确定按钮");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击确定按钮失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 点击银行账号选择按钮
+        /// </summary>
+        private async Task ClickBankAccountButton()
+        {
+            try
+            {
+                Console.WriteLine($"      开始点击银行账号选择按钮...");
+                
+                bool clicked = false;
+                var frames = page.Frames;
+                
+                // 在iframe中查找按钮
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var buttonElement = frame.Locator("#formWF_YB6_3950_ypt-bankno_btn").First;
+                        if (await buttonElement.CountAsync() > 0)
+                        {
+                            await buttonElement.ClickAsync();
+                            Console.WriteLine($"      在iframe中成功点击银行账号选择按钮");
+                            clicked = true;
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在iframe中查找银行账号选择按钮失败: {ex.Message}");
+                        continue;
+                    }
+                }
+                
+                // 如果在iframe中找不到，尝试在主页面查找
+                if (!clicked)
+                {
+                    try
+                    {
+                        await page.WaitForSelectorAsync("#formWF_YB6_3950_ypt-bankno_btn", new PageWaitForSelectorOptions { Timeout = 3000 });
+                        await page.ClickAsync("#formWF_YB6_3950_ypt-bankno_btn");
+                        Console.WriteLine($"      在主页面成功点击银行账号选择按钮");
+                        clicked = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"      在主页面查找银行账号选择按钮失败: {ex.Message}");
+                    }
+                }
+                
+                if (!clicked)
+                {
+                    Console.WriteLine($"      最终失败：无法找到银行账号选择按钮 formWF_YB6_3950_ypt-bankno_btn");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击银行账号选择按钮失败: {ex.Message}");
+            }
         }
 
         private async Task FillInput(string headerName, string value)
@@ -1544,6 +2065,8 @@ namespace AutoFinan
 
                 // 方法1: 优先在iframe中查找
                 var frames = page.Frames;
+                Console.WriteLine($"      开始在所有iframe中查找输入框 {elementId}，共 {frames.Count} 个iframe");
+                
                 foreach (var frame in frames)
                 {
                     try
@@ -1551,32 +2074,40 @@ namespace AutoFinan
                         var inputElement = frame.Locator($"#{elementId}").First;
                         if (await inputElement.CountAsync() > 0)
                         {
-                            await inputElement.FillAsync(actualValue);
-                            if (headerName == "登录界面密码")
+                            // 检查元素是否可见和可编辑
+                            var isVisible = await inputElement.IsVisibleAsync();
+                            var isEnabled = await inputElement.IsEnabledAsync();
+                            
+                            Console.WriteLine($"      在iframe中找到输入框 {elementId}，可见: {isVisible}, 可编辑: {isEnabled}");
+                            
+                            if (isVisible && isEnabled)
                             {
-                                Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: [已隐藏]");
-                            }
-                            else
-                            {
-                                Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {actualValue}");
-                            }
+                                await inputElement.FillAsync(actualValue);
+                                if (headerName == "登录界面密码")
+                                {
+                                    Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: [已隐藏]");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {actualValue}");
+                                }
 
-                            // 如果是银行卡相关字段，触发事件来弹出选择窗口
-                            if (IsBankCardField(headerName))
-                            {
-                                await TriggerBankCardSelection(inputElement);
-                            }
+                                // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                                if (IsBankCardField(headerName))
+                                {
+                                    await TriggerBankCardSelection(inputElement);
+                                }
 
-                            // 如果是奖助学金项目号，自动按回车键并选择表格第一行
-                            if (headerName == "奖助学金项目号")
-                            {
-                                Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
-                                await inputElement.PressAsync("Enter");
-                                Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
-                                await Task.Delay(1000); // 等待页面响应
-
-                                // 自动选择表格第一行
-                                await SelectFirstTableRow();
+                                // 如果是奖助学金项目号，自动按回车键并选择表格第一行
+                                if (headerName == "奖助学金项目号")
+                                {
+                                    Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
+                                    await inputElement.PressAsync("Enter");
+                                    Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
+                                    await Task.Delay(1000); // 等待页面响应
+                                }
+                                    // 自动选择表格第一行
+                                await SelectFirstTableRow(frame);
                             }
                             // 如果是奖助学金工号，自动按回车键
                             else if (headerName == "奖助学金工号")
@@ -1603,15 +2134,32 @@ namespace AutoFinan
                 {
                     try
                     {
+                        Console.WriteLine($"      在iframe中未找到输入框，尝试在主页面查找 {elementId}");
                         await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
-                        await page.FillAsync($"#{elementId}", actualValue);
-                        if (headerName == "登录界面密码")
+                        
+                        // 检查主页面元素是否可见和可编辑
+                        var mainPageElement = page.Locator($"#{elementId}").First;
+                        var isVisible = await mainPageElement.IsVisibleAsync();
+                        var isEnabled = await mainPageElement.IsEnabledAsync();
+                        
+                        Console.WriteLine($"      在主页面找到输入框 {elementId}，可见: {isVisible}, 可编辑: {isEnabled}");
+                        
+                        if (isVisible && isEnabled)
                         {
-                            Console.WriteLine($"      在主页面成功填写输入框 {elementId}: [已隐藏]");
+                            await page.FillAsync($"#{elementId}", actualValue);
+                            if (headerName == "登录界面密码")
+                            {
+                                Console.WriteLine($"      在主页面成功填写输入框 {elementId}: [已隐藏]");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"      在主页面成功填写输入框 {elementId}: {actualValue}");
+                            }
                         }
                         else
                         {
-                            Console.WriteLine($"      在主页面成功填写输入框 {elementId}: {actualValue}");
+                            Console.WriteLine($"      主页面输入框 {elementId} 不可见或不可编辑，跳过填写");
+                            return;
                         }
 
                         // 如果是银行卡相关字段，触发事件来弹出选择窗口
@@ -3400,7 +3948,46 @@ namespace AutoFinan
                     ["宁夏（银川）"] = "宁夏（银川）",
                     ["宁夏（其他地区）"] = "宁夏（其他地区）",
                     ["新疆（乌鲁木齐）"] = "新疆（乌鲁木齐）",
-                    ["新疆（其他地区）"] = "新疆（其他地区）"
+                    ["新疆（其他地区）"] = "新疆（其他地区）",
+
+                    // 新增：与实际<select>选项完全一致的简化值映射
+                    ["北京"] = "北京",
+                    ["天津"] = "天津",
+                    ["河北"] = "河北",
+                    ["山西"] = "山西",
+                    ["内蒙古"] = "内蒙古",
+                    ["辽宁"] = "辽宁",
+                    ["大连"] = "大连",
+                    ["吉林"] = "吉林",
+                    ["黑龙江"] = "黑龙江",
+                    ["上海"] = "上海",
+                    ["江苏"] = "江苏",
+                    ["浙江"] = "浙江",
+                    ["宁波"] = "宁波",
+                    ["安徽"] = "安徽",
+                    ["福建"] = "福建",
+                    ["厦门"] = "厦门",
+                    ["江西"] = "江西",
+                    ["山东"] = "山东",
+                    ["青岛"] = "青岛",
+                    ["河南"] = "河南",
+                    ["湖北"] = "湖北",
+                    ["湖南"] = "湖南",
+                    ["广东"] = "广东",
+                    ["深圳"] = "深圳",
+                    ["广西"] = "广西",
+                    ["海南"] = "海南",
+                    ["重庆"] = "重庆",
+                    ["四川除成都"] = "四川除成都",
+                    ["成都市内"] = "成都市内",
+                    ["云南"] = "云南",
+                    ["西藏"] = "西藏",
+                    ["陕西"] = "陕西",
+                    ["甘肃"] = "甘肃",
+                    ["青海"] = "青海",
+                    ["宁夏"] = "宁夏",
+                    ["新疆"] = "新疆",
+                    ["贵州"] = "贵州"
                 },
                 ["是否安排伙食"] = new Dictionary<string, string>
                 {
@@ -3432,6 +4019,14 @@ namespace AutoFinan
                     ["导师助研助学金"] = "导师助研助学金",
                     ["科研经费博士助研费（基本）"] = "科研经费博士助研费（基本）",
                     ["科研经费博士助研费（奖励）"] = "科研经费博士助研费（奖励）"
+                },
+                ["校外人员卡类型"] = new Dictionary<string, string>
+                {
+                    ["交行工资卡"] = "交行工资卡",
+                    ["建行公务卡"] = "建行公务卡",
+                    ["中国银行卡"] = "中国银行卡",
+                    ["建行借记卡"] = "建行借记卡",
+                    ["其他银行卡"] = "其他银行卡"
                 }
             };
 
@@ -3478,10 +4073,64 @@ namespace AutoFinan
                         var selectElement = frame.Locator($"#{elementId}").First;
                         if (await selectElement.CountAsync() > 0)
                         {
+                            // 先等待下拉框选项加载完成
+                            await Task.Delay(1000);
+                            
+                            // 尝试多种选择方式
+                            try
+                            {
+                                // 方式1: 直接选择
                             await selectElement.SelectOptionAsync(mappedValue);
                             Console.WriteLine($"      在iframe中成功选择下拉框 {elementId}: {mappedValue}");
                             selected = true;
                             break;
+                            }
+                            catch (Exception selectEx)
+                            {
+                                Console.WriteLine($"      直接选择失败: {selectEx.Message}");
+                                
+                                // 方式2: 先点击展开下拉框，再选择
+                                try
+                                {
+                                    await selectElement.ClickAsync();
+                                    await Task.Delay(500);
+                                    await selectElement.SelectOptionAsync(mappedValue);
+                                    Console.WriteLine($"      在iframe中通过点击展开成功选择下拉框 {elementId}: {mappedValue}");
+                                    selected = true;
+                                    break;
+                                }
+                                catch (Exception clickEx)
+                                {
+                                    Console.WriteLine($"      点击展开选择失败: {clickEx.Message}");
+                                    
+                                    // 方式3: 尝试通过文本选择
+                                    try
+                                    {
+                                        await selectElement.SelectOptionAsync(new SelectOptionValue { Label = mappedValue });
+                                        Console.WriteLine($"      在iframe中通过文本标签成功选择下拉框 {elementId}: {mappedValue}");
+                                        selected = true;
+                                        break;
+                                    }
+                                    catch (Exception labelEx)
+                                    {
+                                        Console.WriteLine($"      通过文本标签选择失败: {labelEx.Message}");
+                                        
+                                        // 方式4: 尝试通过JavaScript设置值
+                                        try
+                                        {
+                                            await frame.EvaluateAsync($"document.getElementById('{elementId}').value = '{mappedValue}'");
+                                            await frame.EvaluateAsync($"document.getElementById('{elementId}').dispatchEvent(new Event('change', {{ bubbles: true }}))");
+                                            Console.WriteLine($"      在iframe中通过JavaScript成功设置下拉框 {elementId}: {mappedValue}");
+                                            selected = true;
+                                            break;
+                                        }
+                                        catch (Exception jsEx)
+                                        {
+                                            Console.WriteLine($"      通过JavaScript设置失败: {jsEx.Message}");
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -3497,9 +4146,61 @@ namespace AutoFinan
                     try
                     {
                         await page.WaitForSelectorAsync($"#{elementId}", new PageWaitForSelectorOptions { Timeout = 3000 });
+                        
+                        // 先等待下拉框选项加载完成
+                        await Task.Delay(1000);
+                        
+                        // 尝试多种选择方式
+                        try
+                        {
+                            // 方式1: 直接选择
                         await page.SelectOptionAsync($"#{elementId}", mappedValue);
                         Console.WriteLine($"      在主页面成功选择下拉框 {elementId}: {mappedValue}");
                         selected = true;
+                        }
+                        catch (Exception selectEx)
+                        {
+                            Console.WriteLine($"      主页面直接选择失败: {selectEx.Message}");
+                            
+                            // 方式2: 先点击展开下拉框，再选择
+                            try
+                            {
+                                await page.ClickAsync($"#{elementId}");
+                                await Task.Delay(500);
+                                await page.SelectOptionAsync($"#{elementId}", mappedValue);
+                                Console.WriteLine($"      在主页面通过点击展开成功选择下拉框 {elementId}: {mappedValue}");
+                                selected = true;
+                            }
+                            catch (Exception clickEx)
+                            {
+                                Console.WriteLine($"      主页面点击展开选择失败: {clickEx.Message}");
+                                
+                                // 方式3: 尝试通过文本选择
+                                try
+                                {
+                                    await page.SelectOptionAsync($"#{elementId}", new SelectOptionValue { Label = mappedValue });
+                                    Console.WriteLine($"      在主页面通过文本标签成功选择下拉框 {elementId}: {mappedValue}");
+                                    selected = true;
+                                }
+                                catch (Exception labelEx)
+                                {
+                                    Console.WriteLine($"      主页面通过文本标签选择失败: {labelEx.Message}");
+                                    
+                                    // 方式4: 尝试通过JavaScript设置值
+                                    try
+                                    {
+                                        await page.EvaluateAsync($"document.getElementById('{elementId}').value = '{mappedValue}'");
+                                        await page.EvaluateAsync($"document.getElementById('{elementId}').dispatchEvent(new Event('change', {{ bubbles: true }}))");
+                                        Console.WriteLine($"      在主页面通过JavaScript成功设置下拉框 {elementId}: {mappedValue}");
+                                        selected = true;
+                                    }
+                                    catch (Exception jsEx)
+                                    {
+                                        Console.WriteLine($"      主页面通过JavaScript设置失败: {jsEx.Message}");
+                                    }
+                                }
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {

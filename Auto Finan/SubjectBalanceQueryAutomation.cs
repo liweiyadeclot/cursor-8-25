@@ -987,6 +987,9 @@ namespace AutoFinan
                     
                     // 6. 将表格数据写入Excel文件
                     await WriteTableDataToExcel(tableData, excelRow);
+                    
+                    // 7. 点击上一步按钮返回项目编号填写界面
+                    await ClickPreviousStepButton();
                 }
                 catch (Exception ex)
                 {
@@ -1314,6 +1317,50 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      点击下一步按钮失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 点击上一步按钮
+        /// </summary>
+        private async Task ClickPreviousStepButton()
+        {
+            try
+            {
+                string btnname = "上一步";
+                var frames = page.Frames;
+                bool clicked = false;
+
+                foreach (var frame in frames)
+                {
+                    try
+                    {
+                        var buttonElement = frame.Locator($"button[btnname='{btnname}']").First;
+                        if (await buttonElement.CountAsync() > 0)
+                        {
+                            await buttonElement.ClickAsync();
+                            Console.WriteLine($"      成功点击上一步按钮");
+                            clicked = true;
+                            
+                            // 等待页面加载完成
+                            await Task.Delay(2000);
+                            break;
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
+
+                if (!clicked)
+                {
+                    Console.WriteLine($"      警告：未找到上一步按钮");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      点击上一步按钮失败: {ex.Message}");
             }
         }
 
@@ -1752,12 +1799,43 @@ namespace AutoFinan
                 string expenseName = row.ContainsKey("报销项") ? row["报销项"] : "未知";
                 string balance = row.ContainsKey("余额") ? row["余额"] : "未获取到余额信息";
                 
-                // 格式化每一行：报销项: 余额信息
-                formattedLines.Add($"{expenseName}: {balance}");
+                // 提取余额中的数字部分
+                string extractedAmount = ExtractAmountFromBalance(balance);
+                
+                // 格式化每一行：报销项: 提取的数字
+                formattedLines.Add($"{expenseName}: {extractedAmount}");
             }
 
             // 用换行符连接所有行
             return string.Join("\n", formattedLines);
+        }
+
+        /// <summary>
+        /// 从余额字符串中提取数字部分
+        /// </summary>
+        private string ExtractAmountFromBalance(string balance)
+        {
+            if (string.IsNullOrEmpty(balance))
+            {
+                return "0";
+            }
+
+            // 使用正则表达式提取"可填最大金额"后面的数字（包括小数）
+            var match = System.Text.RegularExpressions.Regex.Match(balance, @"可填最大金额\s*(\d+\.?\d*)\s*元");
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+
+            // 如果没有找到"可填最大金额"模式，尝试提取其他数字模式
+            var fallbackMatch = System.Text.RegularExpressions.Regex.Match(balance, @"(\d+\.?\d*)\s*元");
+            if (fallbackMatch.Success)
+            {
+                return fallbackMatch.Groups[1].Value;
+            }
+
+            // 如果都没有找到，返回原始字符串
+            return balance;
         }
     }
 
