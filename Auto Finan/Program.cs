@@ -527,49 +527,51 @@ namespace AutoFinan
                             if (cellValue == SubsequenceMarker)
                             {
                                 Console.WriteLine($"检测到第一种子序列开始标记，进入子序列处理逻辑");
+                                // 获取当前报销单的起始行
+                                int logicalStartRow = GetLogicalStartRow(row, worksheet);
+                                Console.WriteLine($"当前报销单起始行: {logicalStartRow}，将从该行开始处理第一种子序列");
+                                
                                 // 找到对应的子序列结束列
                                 int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
-                                int nextRow = await ProcessSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
+                                int subsequenceEndRow = await ProcessSubsequence(worksheet, headers, logicalStartRow, rowCount, col, subsequenceEndColIndex);
 
-                                // 如果子序列处理返回了下一行的行号，继续处理那一行
-                                if (nextRow > 0)
-                                {
-                                    Console.WriteLine($"子序列处理完成，继续处理第 {nextRow} 行");
-                                    await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
-
-                                    // 更新外层循环的行号，跳过已经处理过的行
-                                    row = nextRow;
-                                }
+                                // 子序列处理完成后，回到报销单起始行，从子序列结束列的下一列开始继续处理
+                                Console.WriteLine($"第一种子序列处理完成，回到报销单起始行 {logicalStartRow}，从第 {GetColumnName(subsequenceEndColIndex + 1)} 列开始继续处理");
+                                await ProcessRowFromColumn(worksheet, headers, logicalStartRow, subsequenceEndColIndex + 1, colCount);
+                                
+                                // 更新外层循环的行号为起始行，这样下次循环会从起始行的下一行开始
+                                row = logicalStartRow;
                                 break; // 跳出当前行的列循环，继续处理下一行
                             }
                             else if (cellValue == SubsequenceMarker2)
                             {
-                                    // 在进入第二种子序列处理之前，先检查当前行是否也是子序列结束
+                                // 获取当前报销单的起始行
+                                int logicalStartRow = GetLogicalStartRow(row, worksheet);
+                                Console.WriteLine($"当前报销单起始行: {logicalStartRow}，将从该行开始处理第二种子序列");
+                                
+                                // 在进入第二种子序列处理之前，先检查起始行是否也是子序列结束
                                 int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
-                                    if (subsequenceEndColIndex > 0)
-                                    {
-                                        var currentRowSubsequenceEndValue = worksheet.Cells[row, subsequenceEndColIndex].Value?.ToString() ?? "";
-                                        if (currentRowSubsequenceEndValue == SubsequenceMarker2)
-                                        {
-                                            Console.WriteLine($"检测到第 {row} 行既是第二种子序列开始也是结束，直接处理该行");
-                                            // 直接处理当前行的子序列数据，不进入循环
-                                            await ProcessSingleRowSubsequence(worksheet, headers, row, col, subsequenceEndColIndex);
-                                            break; // 跳出当前行的列循环，继续处理下一行
-                                        }
-                                    }
-                                    
-                                    Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
-                                int nextRow = await ProcessSecondSubsequence(worksheet, headers, row, rowCount, col, subsequenceEndColIndex);
-
-                                // 如果子序列处理返回了下一行的行号，继续处理那一行
-                                if (nextRow > 0)
+                                if (subsequenceEndColIndex > 0)
                                 {
-                                    Console.WriteLine($"第二种子序列处理完成，继续处理第 {nextRow} 行");
-                                    await ProcessRowFromColumn(worksheet, headers, nextRow, subsequenceEndColIndex + 1, colCount);
-
-                                    // 更新外层循环的行号，跳过已经处理过的行
-                                    row = nextRow;
+                                    var logicalStartRowSubsequenceEndValue = worksheet.Cells[logicalStartRow, subsequenceEndColIndex].Value?.ToString() ?? "";
+                                    if (logicalStartRowSubsequenceEndValue == SubsequenceMarker2)
+                                    {
+                                        Console.WriteLine($"检测到第 {logicalStartRow} 行既是第二种子序列开始也是结束，直接处理该行");
+                                        // 直接处理起始行的子序列数据，不进入循环
+                                        await ProcessSingleRowSubsequence(worksheet, headers, logicalStartRow, col, subsequenceEndColIndex);
+                                        break; // 跳出当前行的列循环，继续处理下一行
+                                    }
                                 }
+                                
+                                Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
+                                int subsequenceEndRow = await ProcessSecondSubsequence(worksheet, headers, logicalStartRow, rowCount, col, subsequenceEndColIndex);
+
+                                // 子序列处理完成后，回到报销单起始行，从子序列结束列的下一列开始继续处理
+                                Console.WriteLine($"第二种子序列处理完成，回到报销单起始行 {logicalStartRow}，从第 {GetColumnName(subsequenceEndColIndex + 1)} 列开始继续处理");
+                                await ProcessRowFromColumn(worksheet, headers, logicalStartRow, subsequenceEndColIndex + 1, colCount);
+                                
+                                // 更新外层循环的行号为起始行，这样下次循环会从起始行的下一行开始
+                                row = logicalStartRow;
                                 break; // 跳出当前行的列循环，继续处理下一行
                             }
                             else
@@ -729,6 +731,40 @@ namespace AutoFinan
 
             return 0;
         }
+
+        /// <summary>
+        /// 获取当前报销单的起始行（LogicalRow的起始行）
+        /// </summary>
+        private int GetLogicalStartRow(int currentRow, ExcelWorksheet workSheet)
+        {
+            int logicIDColNum = 0;
+            for (int i = 1; i <= (workSheet.Dimension?.Columns ?? 0); i++)
+            {
+                string head = workSheet.Cells[1, i].Text;
+                if (head == "序号")
+                    logicIDColNum = i;
+            }
+
+            // 如果没有找到序号列，返回当前行
+            if (logicIDColNum == 0)
+                return currentRow;
+
+            // 获取当前行的序号值
+            string currentLogicID = workSheet.Cells[currentRow, logicIDColNum].Text;
+            
+            // 向上查找，找到具有相同序号的第一行
+            for (int i = currentRow; i >= 2; i--) // 从第2行开始（跳过标题行）
+            {
+                string rowLogicID = workSheet.Cells[i, logicIDColNum].Text;
+                if (rowLogicID != currentLogicID)
+                {
+                    return i + 1; // 返回下一行，即当前报销单的起始行
+                }
+            }
+
+            // 如果一直向上查找到第2行都是相同序号，说明当前报销单从第2行开始
+            return 2;
+        }
         private async Task LoadTitleIdMapping(string excelFilePath)
         {
             Console.WriteLine("开始加载标题-ID映射表...");
@@ -813,8 +849,8 @@ namespace AutoFinan
                     if (currentRowSubsequenceEndValue == SubsequenceMarker)
                     {
                         Console.WriteLine($"检测到当前行({row})的子序列结束标记，结束子序列处理");
-                        Console.WriteLine($"程序将从第 {row} 行继续正常处理逻辑");
-                        return row; // 返回当前行的行号
+                        Console.WriteLine($"程序将从第 {startRow} 行继续正常处理逻辑");
+                        return startRow; // 返回报销单起始行的行号
                     }
                     else
                     {
@@ -871,13 +907,13 @@ namespace AutoFinan
                     if (currentRowSubsequenceEndValue == SubsequenceMarker2)
                     {
                         Console.WriteLine($"检测到当前行({row})的第二种子序列结束标记，结束子序列处理");
-                        Console.WriteLine($"程序将从第 {row} 行继续正常处理逻辑");
+                        Console.WriteLine($"程序将从第 {startRow} 行继续正常处理逻辑");
 
                         // 重置第二种子序列标记
                         isInSecondSubsequence = false;
                         subsequenceRowIndex = 0;
 
-                        return row; // 返回当前行的行号
+                        return startRow; // 返回报销单起始行的行号
                     }
                     else
                     {
