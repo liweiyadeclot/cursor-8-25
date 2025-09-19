@@ -522,9 +522,14 @@ namespace AutoFinan
                         Console.WriteLine($"      当前列 {col}，子序列开始列列表: [{string.Join(", ", subsequenceStartColumns)}]，是否包含当前列: {subsequenceStartColumns.Contains(col)}");
                         if (subsequenceStartColumns.Contains(col))
                         {
-                            Console.WriteLine($"      检查子序列开始标记：当前列 {col}，单元格值 '{cellValue}'，第一种子序列标记 '{SubsequenceMarker}'，第二种子序列标记 '{SubsequenceMarker2}'");
+                            Console.WriteLine($"      检查子序列开始标记：当前列 {col}({GetColumnName(col)})，列标题 '{headerName}'，单元格值 '{cellValue}'，第一种子序列标记 '{SubsequenceMarker}'，第二种子序列标记 '{SubsequenceMarker2}'");
 
-                            if (cellValue == SubsequenceMarker)
+                            // 严格验证：只有列标题为"子序列开始"的列才能触发子序列处理
+                            if (headerName != "子序列开始")
+                            {
+                                Console.WriteLine($"      警告：列标题不是'子序列开始'，跳过子序列检测");
+                            }
+                            else if (cellValue == SubsequenceMarker)
                             {
                                 Console.WriteLine($"检测到第一种子序列开始标记，进入子序列处理逻辑");
                                 // 获取当前报销单的起始行
@@ -533,6 +538,8 @@ namespace AutoFinan
                                 
                                 // 找到对应的子序列结束列
                                 int subsequenceEndColIndex = FindCorrespondingEndColumn(col, subsequenceStartColumns, subsequenceEndColumns);
+                                Console.WriteLine($"第一种子序列：开始列={col}({GetColumnName(col)})，结束列={subsequenceEndColIndex}({GetColumnName(subsequenceEndColIndex)})");
+                                Console.WriteLine($"调用ProcessSubsequence参数：startRow={logicalStartRow}, totalRows={rowCount}");
                                 int subsequenceEndRow = await ProcessSubsequence(worksheet, headers, logicalStartRow, rowCount, col, subsequenceEndColIndex);
 
                                 // 子序列处理完成后，回到报销单起始行，从子序列结束列的下一列开始继续处理
@@ -564,6 +571,7 @@ namespace AutoFinan
                                 }
                                 
                                 Console.WriteLine($"检测到第二种子序列开始标记，进入第二种子序列处理逻辑");
+                                Console.WriteLine($"第二种子序列：开始列={col}({GetColumnName(col)})，结束列={subsequenceEndColIndex}({GetColumnName(subsequenceEndColIndex)})");
                                 int subsequenceEndRow = await ProcessSecondSubsequence(worksheet, headers, logicalStartRow, rowCount, col, subsequenceEndColIndex);
 
                                 // 子序列处理完成后，回到报销单起始行，从子序列结束列的下一列开始继续处理
@@ -813,9 +821,16 @@ namespace AutoFinan
         {
             Console.WriteLine($"\n=== 进入第三层循环：第一种子序列处理逻辑 ===");
             Console.WriteLine($"子序列处理从第 {startRow} 行开始");
+            Console.WriteLine($"调试信息：开始列={subsequenceStartColIndex}({GetColumnName(subsequenceStartColIndex)})，结束列={subsequenceEndColIndex}({GetColumnName(subsequenceEndColIndex)})");
+            Console.WriteLine($"处理范围：从列{GetColumnName(subsequenceStartColIndex + 1)}到列{GetColumnName(subsequenceEndColIndex - 1)}");
 
             // 第三层循环：从上至下，处理子序列中的每一行
-            for (int row = startRow; row <= totalRows; row++)
+            // 获取实际的工作表行数
+            int actualTotalRows = worksheet.Dimension?.Rows ?? 0;
+            Console.WriteLine($"开始子序列循环：从第{startRow}行开始，实际总行数={actualTotalRows}");
+            Console.WriteLine($"注意：子序列循环将持续到找到结束标记为止，不受总行数限制");
+            
+            for (int row = startRow; row <= actualTotalRows; row++)
             {
                 Console.WriteLine($"\n--- 处理子序列第 {row} 行 ---");
 
@@ -846,6 +861,7 @@ namespace AutoFinan
                 if (subsequenceEndColIndex > 0)
                 {
                     var currentRowSubsequenceEndValue = worksheet.Cells[row, subsequenceEndColIndex].Value?.ToString() ?? "";
+                    Console.WriteLine($"检查结束标记：第{row}行，{GetColumnName(subsequenceEndColIndex)}列，值='{currentRowSubsequenceEndValue}'，期望值='{SubsequenceMarker}'");
                     if (currentRowSubsequenceEndValue == SubsequenceMarker)
                     {
                         Console.WriteLine($"检测到当前行({row})的子序列结束标记，结束子序列处理");
@@ -855,6 +871,7 @@ namespace AutoFinan
                     else
                     {
                         Console.WriteLine($"当前行({row})的子序列结束列未标记为'是'，继续处理下一行");
+                        Console.WriteLine($"循环条件检查：当前行={row}，总行数={totalRows}，是否继续={(row < totalRows)}");
                     }
                 }
             }
@@ -873,7 +890,12 @@ namespace AutoFinan
             subsequenceRowIndex = 0; // 从0开始计数
 
             // 第三层循环：从上至下，处理子序列中的每一行
-            for (int row = startRow; row <= totalRows; row++)
+            // 获取实际的工作表行数
+            int actualTotalRows = worksheet.Dimension?.Rows ?? 0;
+            Console.WriteLine($"开始第二种子序列循环：从第{startRow}行开始，实际总行数={actualTotalRows}");
+            Console.WriteLine($"注意：子序列循环将持续到找到结束标记为止，不受总行数限制");
+            
+            for (int row = startRow; row <= actualTotalRows; row++)
             {
                 Console.WriteLine($"\n--- 处理第二种子序列第 {row} 行（子序列内序号：{subsequenceRowIndex}） ---");
 
@@ -1770,7 +1792,7 @@ namespace AutoFinan
                 if (await queryButton.CountAsync() > 0)
                 {
                     await queryButton.ClickAsync();
-                    await Task.Delay(1000);
+                    await Task.Delay(2000);
                     Console.WriteLine($"      成功点击银行账号查询按钮");
                 }
                 else
@@ -1802,8 +1824,8 @@ namespace AutoFinan
                 // 点击确定按钮
                 await ClickConfirmButton(frame);
                 
-                // 等待1秒
-                await Task.Delay(1000);
+                // 等待2秒
+                await Task.Delay(2000);
                 
                 Console.WriteLine($"      表格第一行选择和确认完成");
             }
@@ -1846,7 +1868,7 @@ namespace AutoFinan
                         {
                             // 点击第一行进行选择
                             await firstDataRow.ClickAsync();
-                            await Task.Delay(500);
+                            await Task.Delay(2000);
                             Console.WriteLine($"      成功选择表格第一行数据");
                         }
                         else
@@ -1857,7 +1879,7 @@ namespace AutoFinan
                             try
                             {
                                 await firstDataRow.EvaluateAsync("element => element.click()");
-                                await Task.Delay(500);
+                                await Task.Delay(2000);
                                 Console.WriteLine($"      通过JavaScript成功选择表格第一行");
                             }
                             catch (Exception jsEx)
@@ -1872,7 +1894,7 @@ namespace AutoFinan
                                     if (secondVisible)
                                     {
                                         await secondRow.ClickAsync();
-                                        await Task.Delay(500);
+                                        await Task.Delay(2000);
                                         Console.WriteLine($"      成功选择表格第二行数据");
                                     }
                                     else
@@ -1921,7 +1943,7 @@ namespace AutoFinan
                         if (buttonText != null && buttonText.Trim() == "确定")
                         {
                             await confirmButtonByClass.ClickAsync();
-                            await Task.Delay(500);
+                            await Task.Delay(2000);
                             Console.WriteLine($"      通过class成功点击确定按钮");
                             clicked = true;
                         }
@@ -1945,7 +1967,7 @@ namespace AutoFinan
                         if (await confirmButtonByBtnname.CountAsync() > 0)
                         {
                             await confirmButtonByBtnname.ClickAsync();
-                            await Task.Delay(500);
+                            await Task.Delay(2000);
                             Console.WriteLine($"      通过btnname成功点击确定按钮");
                             clicked = true;
                         }
@@ -1972,7 +1994,7 @@ namespace AutoFinan
                             if (text != null && text.Trim() == "确定")
                             {
                                 await button.ClickAsync();
-                                await Task.Delay(500);
+                                await Task.Delay(2000);
                                 Console.WriteLine($"      通过文本匹配成功点击确定按钮 (第{i+1}个按钮)");
                                 clicked = true;
                                 break;
@@ -2058,6 +2080,53 @@ namespace AutoFinan
 
         private async Task FillInput(string headerName, string value)
         {
+            await FillInputWithTimeout(headerName, value);
+        }
+
+        private async Task FillInputWithTimeout(string headerName, string value)
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试填写输入框: {headerName}");
+
+                try
+                {
+                    // 执行输入框填写操作
+                    await FillInputCore(headerName, value);
+
+                    // 如果执行成功，直接返回
+                    Console.WriteLine($"      输入框填写成功: {headerName}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误
+            Console.WriteLine($"      ❌ 输入框填写超时（1分钟）: {headerName}");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，跳过该输入框");
+            
+            // 抛出异常，让上层调用者知道需要跳过
+            throw new TimeoutException($"输入框填写超时: {headerName}");
+        }
+
+        private async Task FillInputCore(string headerName, string value)
+        {
             try
             {
                 string elementId = GetElementId(headerName);
@@ -2104,11 +2173,22 @@ namespace AutoFinan
                 }
 
                 // 实现实际的输入框填写逻辑
+                await ExecuteFillInputOperation(elementId, actualValue, headerName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      填写输入框失败: {ex.Message}");
+                throw; // 重新抛出异常，让超时机制处理
+            }
+        }
+
+        private async Task ExecuteFillInputOperation(string elementId, string actualValue, string headerName)
+        {
                 bool filled = false;
 
                 // 方法1: 优先在iframe中查找
                 var frames = page.Frames;
-                Console.WriteLine($"      开始在所有iframe中查找输入框 {elementId}，共 {frames.Count} 个iframe");
+            Console.WriteLine($"      开始在所有iframe中查找输入框 {elementId}，共 {frames.Count} 个iframe");
                 
                 foreach (var frame in frames)
                 {
@@ -2135,21 +2215,21 @@ namespace AutoFinan
                                     Console.WriteLine($"      在iframe中成功填写输入框 {elementId}: {actualValue}");
                                 }
 
-                                // 如果是银行卡相关字段，触发事件来弹出选择窗口
-                                if (IsBankCardField(headerName))
-                                {
-                                    await TriggerBankCardSelection(inputElement);
-                                }
+                            // 如果是银行卡相关字段，触发事件来弹出选择窗口
+                            if (IsBankCardField(headerName))
+                            {
+                                await TriggerBankCardSelection(inputElement);
+                            }
 
-                                // 如果是奖助学金项目号，自动按回车键并选择表格第一行
-                                if (headerName == "奖助学金项目号")
-                                {
-                                    Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
-                                    await inputElement.PressAsync("Enter");
-                                    Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
-                                    await Task.Delay(1000); // 等待页面响应
+                            // 如果是奖助学金项目号，自动按回车键并选择表格第一行
+                            if (headerName == "奖助学金项目号")
+                            {
+                                Console.WriteLine("      检测到奖助学金项目号，自动按回车键");
+                                await inputElement.PressAsync("Enter");
+                                Console.WriteLine("      成功在奖助学金项目号输入框中按回车键");
+                                await Task.Delay(1000); // 等待页面响应
                                 }
-                                    // 自动选择表格第一行
+                                // 自动选择表格第一行
                                 await SelectFirstTableRow(frame);
                             }
                             // 如果是奖助学金工号，自动按回车键
@@ -2303,11 +2383,7 @@ namespace AutoFinan
                 if (!filled)
                 {
                     Console.WriteLine($"      最终失败：无法找到输入框 {elementId}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"      填写输入框失败: {ex.Message}");
+                throw new Exception($"无法找到输入框 {elementId}");
             }
         }
 
@@ -2633,8 +2709,8 @@ namespace AutoFinan
                     Console.WriteLine($"      按钮点击状态: clicked = {clicked}");
                 }
 
-                // 等待按钮点击后的页面加载
-                await Task.Delay(1000);
+                // 等待按钮点击后的页面加载（增加到2秒）
+                await Task.Delay(2000);
 
                 // 特殊处理：如果是打印确认单按钮，调用Python脚本处理后续操作
                 if (headerName == "打印确认单" && clicked)
@@ -2678,6 +2754,10 @@ namespace AutoFinan
 
                     // 如果执行成功，直接返回
                     Console.WriteLine($"      按钮点击成功: {headerName}");
+                    
+                    // 按钮点击后等待2秒，让页面有时间响应
+                    Console.WriteLine("      按钮点击后等待2秒...");
+                    await Task.Delay(2000);
                     return;
                 }
                 catch (Exception ex)
@@ -3466,13 +3546,60 @@ namespace AutoFinan
 
         private async Task SelectDate(string headerName, string dateValue)
         {
+            await SelectDateWithTimeout(headerName, dateValue);
+        }
+
+        private async Task SelectDateWithTimeout(string headerName, string dateValue)
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试选择日期: {headerName} = {dateValue}");
+
+                try
+                {
+                    // 执行日期选择操作
+                    await SelectDateCore(headerName, dateValue);
+
+                    // 如果执行成功，直接返回
+                    Console.WriteLine($"      日期选择成功: {headerName}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误
+            Console.WriteLine($"      ❌ 日期选择超时（1分钟）: {headerName}");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，跳过该日期选择");
+            
+            // 抛出异常，让上层调用者知道需要跳过
+            throw new TimeoutException($"日期选择超时: {headerName}");
+        }
+
+        private async Task SelectDateCore(string headerName, string dateValue)
+        {
             try
             {
                 string elementId = GetElementId(headerName);
                 if (string.IsNullOrEmpty(elementId))
                 {
                     Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的日期控件ID");
-                    return;
+                    throw new Exception($"未找到日期控件ID: {headerName}");
                 }
 
                 Console.WriteLine($"      选择日期: {headerName} -> {elementId} = {dateValue}");
@@ -3617,6 +3744,7 @@ namespace AutoFinan
                 if (!selected)
                 {
                     Console.WriteLine($"      最终失败：无法找到日期输入框 {elementId}");
+                    throw new Exception($"无法找到日期输入框 {elementId}");
                 }
 
                 // 等待日期选择后的页面加载
@@ -3625,6 +3753,7 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      选择日期失败: {ex.Message}");
+                throw; // 重新抛出异常，让超时机制处理
             }
         }
 
@@ -3865,17 +3994,27 @@ namespace AutoFinan
         {
             // 找到当前开始列在所有开始列中的索引
             int startIndex = startColumns.IndexOf(startColumn);
+            
+            Console.WriteLine($"    调试FindCorrespondingEndColumn：开始列={startColumn}({GetColumnName(startColumn)})");
+            Console.WriteLine($"    所有开始列：[{string.Join(", ", startColumns.Select(c => $"{c}({GetColumnName(c)})"))}]");
+            Console.WriteLine($"    所有结束列：[{string.Join(", ", endColumns.Select(c => $"{c}({GetColumnName(c)})"))}]");
+            Console.WriteLine($"    开始列索引：{startIndex}");
 
             // 如果找到对应的结束列，返回它；否则返回最后一个结束列
             if (startIndex >= 0 && startIndex < endColumns.Count)
             {
-                return endColumns[startIndex];
+                int endCol = endColumns[startIndex];
+                Console.WriteLine($"    找到对应结束列：{endCol}({GetColumnName(endCol)})");
+                return endCol;
             }
             else if (endColumns.Count > 0)
             {
-                return endColumns[endColumns.Count - 1];
+                int endCol = endColumns[endColumns.Count - 1];
+                Console.WriteLine($"    使用最后一个结束列：{endCol}({GetColumnName(endCol)})");
+                return endCol;
             }
 
+            Console.WriteLine($"    未找到对应的结束列");
             return -1; // 没有找到对应的结束列
         }
 
@@ -4083,13 +4222,60 @@ namespace AutoFinan
 
         private async Task SelectDropdown(string headerName, string displayValue)
         {
+            await SelectDropdownWithTimeout(headerName, displayValue);
+        }
+
+        private async Task SelectDropdownWithTimeout(string headerName, string displayValue)
+        {
+            var timeout = TimeSpan.FromMinutes(1); // 1分钟超时
+            var retryInterval = TimeSpan.FromSeconds(5); // 5秒重试间隔
+            var startTime = DateTime.Now;
+            var attemptCount = 0;
+
+            while (DateTime.Now - startTime < timeout)
+            {
+                attemptCount++;
+                Console.WriteLine($"      第 {attemptCount} 次尝试选择下拉框: {headerName} = {displayValue}");
+
+                try
+                {
+                    // 执行下拉框选择操作
+                    await SelectDropdownCore(headerName, displayValue);
+
+                    // 如果执行成功，直接返回
+                    Console.WriteLine($"      下拉框选择成功: {headerName}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"      第 {attemptCount} 次尝试失败: {ex.Message}");
+
+                    // 如果还没超时，等待5秒后重试
+                    if (DateTime.Now - startTime < timeout)
+                    {
+                        Console.WriteLine($"      等待 {retryInterval.TotalSeconds} 秒后重试...");
+                        await Task.Delay(retryInterval);
+                    }
+                }
+            }
+
+            // 超时了，记录错误
+            Console.WriteLine($"      ❌ 下拉框选择超时（1分钟）: {headerName}");
+            Console.WriteLine($"      尝试了 {attemptCount} 次，跳过该下拉框");
+            
+            // 抛出异常，让上层调用者知道需要跳过
+            throw new TimeoutException($"下拉框选择超时: {headerName}");
+        }
+
+        private async Task SelectDropdownCore(string headerName, string displayValue)
+        {
             try
             {
                 string elementId = GetElementId(headerName);
                 if (string.IsNullOrEmpty(elementId))
                 {
                     Console.WriteLine($"      警告：未找到标题 '{headerName}' 对应的下拉框ID");
-                    return;
+                    throw new Exception($"未找到下拉框ID: {headerName}");
                 }
 
                 Console.WriteLine($"      选择下拉框: {headerName} -> {elementId} = {displayValue}");
@@ -4254,6 +4440,7 @@ namespace AutoFinan
                 if (!selected)
                 {
                     Console.WriteLine($"      最终失败：无法找到下拉框 {elementId}");
+                    throw new Exception($"无法找到下拉框 {elementId}");
                 }
 
                 // 等待下拉框选择后的页面加载
@@ -4262,6 +4449,7 @@ namespace AutoFinan
             catch (Exception ex)
             {
                 Console.WriteLine($"      选择下拉框失败: {ex.Message}");
+                throw; // 重新抛出异常，让超时机制处理
             }
         }
 
