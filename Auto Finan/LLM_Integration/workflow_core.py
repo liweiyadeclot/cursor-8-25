@@ -43,7 +43,6 @@ class WorkflowCore:
         
         # 1. 登录阶段跳转操作说明
         self.LOGIN_TRANSITION = """
-        登录阶段跳转操作说明：
         - 点击登录按钮
         - 点击网上预约报账按钮
         - 点击申请报销单按钮
@@ -52,37 +51,27 @@ class WorkflowCore:
         
         # 2. 项目信息阶段跳转操作说明
         self.PROJECT_TRANSITION = """
-        项目信息阶段跳转操作说明：
         - 点击下一步按钮
         """
         
         # 3. 报销科目信息阶段跳转操作说明
         self.EXPENSE_TRANSITION = """
-        报销科目信息阶段跳转操作说明：
         - 点击下一步按钮
         """
         
         # 4. 报销人员信息阶段跳转操作说明
         self.PERSONNEL_TRANSITION = """
-        报销人员信息阶段跳转操作说明：
         - 点击下一步按钮
         """
         
         # 5. 预约时间阶段跳转操作说明
         self.APPOINTMENT_TRANSITION = """
-        预约时间阶段跳转操作说明：
-        - 进入预约时间选择页面
-        - 选择报销时间
-        - 选择报销地点
-        - 确认预约信息
-        - 点击确认按钮
-        - 等待预约确认
-        - 跳转到下一阶段
+        - 点击预约按钮
+        - 点击打印确认单按钮
         """
         
         # 6. 差旅信息跳转操作说明
         self.TRAVEL_TRANSITION = """
-        差旅信息跳转操作说明：
         - 进入差旅信息填写页面
         - 填写出差人员姓名
         - 选择人员类型
@@ -95,7 +84,6 @@ class WorkflowCore:
         
         # 7. 劳务信息跳转操作说明
         self.LABOR_TRANSITION = """
-        劳务信息跳转操作说明：
         - 进入劳务信息填写页面
         - 选择劳务费类型
         - 填写发放事由
@@ -381,10 +369,30 @@ class WorkflowCore:
         if business_type:
             parts.append(f"业务大类：{business_type}。以下是需要执行的页面操作：")
 
+        # 若为“报销业务”，按阶段顺序生成并在每阶段后追加跳转说明
+        if (business_type or "").strip() == "报销业务":
+            staged = self._build_prompt_reimbursement_flow(data, mapping)
+            return staged
+
         for path, value in self._flatten_json(data):
             if value is None or (isinstance(value, str) and value.strip() == ""):
                 continue
             norm_path = self._normalize_array_path(path)
+            # 特殊处理：expenses[].amount → 使用同项的category作为控件名称
+            if norm_path == "expenses[].amount":
+                # 从原始路径提取索引，找到对应category
+                import re
+                m = re.search(r"expenses\[(\d+)\]\.amount", path)
+                if m:
+                    idx = int(m.group(1))
+                    try:
+                        item = (data.get("expenses") or [])[idx]
+                        cat = item.get("category") if isinstance(item, dict) else None
+                        if cat and str(value).strip() != "":
+                            parts.append(f"向{cat}输入框填写{value}")
+                            continue  # 已输出定制语句
+                    except Exception:
+                        pass
             meta = mapping.get(norm_path)
             if not meta:
                 continue  # 未登记的字段不参与操作
@@ -407,6 +415,75 @@ class WorkflowCore:
                 continue
 
         return "。".join(parts) + ("。" if parts else "")
+
+    def _build_prompt_reimbursement_flow(self, data: Dict[str, Any], mapping: Dict[str, Dict[str, str]]) -> str:
+        """按报销业务的阶段顺序构建提示词，并在每一阶段后拼接跳转说明。"""
+        stage_order = [
+            ("login", self.LOGIN_TRANSITION),
+            ("project", self.PROJECT_TRANSITION),
+            ("expenses", self.EXPENSE_TRANSITION),
+            ("personnel", self.PERSONNEL_TRANSITION),
+            ("appointment", self.APPOINTMENT_TRANSITION),
+        ]
+        segments: List[str] = []
+        # 开头标题
+        segments.append("业务大类：报销业务。以下是需要执行的页面操作：")
+
+        for stage_key, transition_text in stage_order:
+            actions = self._generate_actions_for_stage(data, stage_key, mapping)
+            if actions:
+                # 阶段动作句子
+                segments.append("。".join(actions) + "。")
+            # 阶段跳转说明（无论是否有动作，都附加，便于保持固定流程）
+            if transition_text:
+                segments.append(transition_text.strip())
+        return "\n".join(segments).strip()
+
+    def _generate_actions_for_stage(self, data: Dict[str, Any], stage_key: str, mapping: Dict[str, Dict[str, str]]) -> List[str]:
+        """针对某个顶层阶段键（如 'login'、'project'、'expenses'），
+        从数据中筛选出该阶段下的所有字段，依据Excel映射生成动作语句。"""
+        if stage_key not in data or data.get(stage_key) in (None, ""):
+            return []
+        stage_actions: List[str] = []
+
+        # 特殊处理：expenses阶段的amount，使用对应category作为控件名
+        if stage_key == "expenses" and isinstance(data.get("expenses"), list):
+            for item in data.get("expenses") or []:
+                if not isinstance(item, dict):
+                    continue
+                cat = item.get("category")
+                amt = item.get("amount")
+                if cat is not None and amt not in (None, ""):
+                    stage_actions.append(f"向{cat}输入框填写{amt}")
+        
+        # 遍历所有 (path, value) 对，筛选以 stage_key 开头的路径
+        for path, value in self._flatten_json(data):
+            if value is None or (isinstance(value, str) and value.strip() == ""):
+                continue
+            # 只处理该阶段路径
+            if not (path == stage_key or path.startswith(stage_key + ".") or path.startswith(stage_key + "[")):
+                continue
+            # 已经为expenses[].amount生成过定制语句，避免重复
+            norm_path = self._normalize_array_path(path)
+            if stage_key == "expenses" and norm_path == "expenses[].amount":
+                continue
+
+            meta = mapping.get(norm_path)
+            if not meta:
+                continue
+            mark = (meta.get("type") or "").lower().strip()
+            label = meta.get("label") or norm_path
+            if mark == "":
+                continue
+            if mark == "i":
+                stage_actions.append(f"在{label}输入框中输入{value}")
+            elif mark == "c":
+                stage_actions.append(f"在{label}下拉框中选择{value}")
+            elif mark == "r":
+                stage_actions.append(f"点击{label}radio button")
+            elif mark == "d":
+                stage_actions.append(f"选择日期{label}为{value}")
+        return stage_actions
 
     def build_playwright_prompt_from_input(self, user_input: str) -> Dict[str, Any]:
         """一体化：提取→（可选）更新映射→生成提示词。
