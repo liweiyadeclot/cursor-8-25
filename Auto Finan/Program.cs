@@ -3349,7 +3349,7 @@ namespace AutoFinan
         {
             try
             {
-                string elementId = GetElementId(radioValue);
+                 string elementId = GetElementId(radioValue);
                 if (string.IsNullOrEmpty(elementId))
                 {
                     Console.WriteLine($"      警告：未找到Radio值 '{radioValue}' 对应的元素ID");
