@@ -1,7 +1,7 @@
 {
   "ExcelFilePath": "420财务050823.xlsx",
   "MappingFilePath": "标题-ID.xlsx",
-  "SheetName": "2-报销",
+  "SheetName": "2-劳务",
   "MappingSheetName": "Sheet1",
   "SaveFolderPath": "C:\\Users\\FH\\source\\repos\\Auto Finan\\prints",
   "ScreenPositions": {

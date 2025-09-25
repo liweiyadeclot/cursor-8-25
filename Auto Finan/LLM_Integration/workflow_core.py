@@ -10,6 +10,7 @@ from enum import Enum
 import os
 import json
 import requests
+import textwrap
 
 # 可选依赖（首次用到映射表时才需要）
 try:
@@ -42,57 +43,65 @@ class WorkflowCore:
         """初始化各阶段跳转操作说明"""
         
         # 1. 登录阶段跳转操作说明
-        self.LOGIN_TRANSITION = """
-        - 点击登录按钮
-        - 点击网上预约报账按钮
-        - 点击申请报销单按钮
-        - 点击已阅读并同意按钮
-        """
+        self.LOGIN_TRANSITION = textwrap.dedent("""
+            将验证码图片保存至LLM_Integration目录下，命名为example.jpg
+            调用LLM_Integration目录下的OCR.py，获取程序输出的验证码，输入到验证码输入框中
+            点击登录按钮
+            点击网上预约报账按钮
+            点击申请报销单按钮
+            点击已阅读并同意按钮
+        """).strip()
         
         # 2. 项目信息阶段跳转操作说明
-        self.PROJECT_TRANSITION = """
-        - 点击下一步按钮
-        """
+        self.PROJECT_TRANSITION = textwrap.dedent("""
+            点击下一步按钮
+        """).strip()
         
         # 3. 报销科目信息阶段跳转操作说明
-        self.EXPENSE_TRANSITION = """
-        - 点击下一步按钮
-        """
+        self.EXPENSE_TRANSITION = textwrap.dedent("""
+            点击下一步按钮
+        """).strip()
         
         # 4. 报销人员信息阶段跳转操作说明
-        self.PERSONNEL_TRANSITION = """
-        - 点击下一步按钮
-        """
+        self.PERSONNEL_TRANSITION = textwrap.dedent("""
+            点击下一步按钮
+        """).strip()
         
         # 5. 预约时间阶段跳转操作说明
-        self.APPOINTMENT_TRANSITION = """
-        - 点击预约按钮
-        - 点击打印确认单按钮
-        """
+        self.APPOINTMENT_TRANSITION = textwrap.dedent("""
+            点击预约按钮
+            点击打印确认单按钮
+        """).strip()
         
         # 6. 差旅信息跳转操作说明
-        self.TRAVEL_TRANSITION = """
-        - 进入差旅信息填写页面
-        - 填写出差人员姓名
-        - 选择人员类型
-        - 填写出差地点
-        - 添加多个出差人员（如有）
-        - 验证差旅信息完整性
-        - 点击下一步按钮
-        - 等待页面跳转
-        """
+        self.TRAVEL_TRANSITION = textwrap.dedent("""
+            - 进入差旅信息填写页面
+            - 填写出差人员姓名
+            - 选择人员类型
+            - 填写出差地点
+            - 添加多个出差人员（如有）
+            - 验证差旅信息完整性
+            - 点击下一步按钮
+            - 等待页面跳转
+        """).strip()
         
         # 7. 劳务信息跳转操作说明
-        self.LABOR_TRANSITION = """
-        - 进入劳务信息填写页面
-        - 选择劳务费类型
-        - 填写发放事由
-        - 填写劳务金额
-        - 添加多个劳务项目（如有）
-        - 验证劳务信息完整性
-        - 点击提交按钮
-        - 等待提交确认
-        """
+        self.LABOR_TRANSITION = textwrap.dedent("""
+            - 进入劳务信息填写页面
+            - 选择劳务费类型
+            - 填写发放事由
+            - 填写劳务金额
+            - 添加多个劳务项目（如有）
+            - 验证劳务信息完整性
+            - 点击提交按钮
+            - 等待提交确认
+        """).strip()
+        
+        # 8. 单个人员信息填写后操作
+        self.PERSONNEL_ITEM_POST_ACTION = textwrap.dedent("""
+            点击提交按钮
+            等待页面响应
+        """).strip()
     
     def get_transition_description(self, stage: WorkflowStage) -> str:
         """
@@ -426,18 +435,31 @@ class WorkflowCore:
             ("appointment", self.APPOINTMENT_TRANSITION),
         ]
         segments: List[str] = []
+        # 添加打开网页指令
+        segments.append("请你调用Playwright MCP，执行以下命令，一次性执行完")
+        segments.append("打开https://cwcx.uestc.edu.cn/WFManager/login.jsp")
         # 开头标题
         segments.append("业务大类：报销业务。以下是需要执行的页面操作：")
 
         for stage_key, transition_text in stage_order:
             actions = self._generate_actions_for_stage(data, stage_key, mapping)
             if actions:
-                # 阶段动作句子
-                segments.append("。".join(actions) + "。")
+                # 阶段动作句子，每个动作换行
+                for i, action in enumerate(actions):
+                    segments.append(action)
             # 阶段跳转说明（无论是否有动作，都附加，便于保持固定流程）
             if transition_text:
-                segments.append(transition_text.strip())
-        return "\n".join(segments).strip()
+                # 将跳转文本按行分割，每行单独作为一个segment
+                transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
+                segments.extend(transition_lines)
+        
+        # 为每行添加序号
+        numbered_segments = []
+        for i, segment in enumerate(segments, 1):
+            if segment.strip():
+                numbered_segments.append(f"{i}. {segment.strip()}")
+        
+        return "\n".join(numbered_segments)
 
     def _generate_actions_for_stage(self, data: Dict[str, Any], stage_key: str, mapping: Dict[str, Dict[str, str]]) -> List[str]:
         """针对某个顶层阶段键（如 'login'、'project'、'expenses'），
@@ -456,7 +478,52 @@ class WorkflowCore:
                 if cat is not None and amt not in (None, ""):
                     stage_actions.append(f"向{cat}输入框填写{amt}")
         
-        # 遍历所有 (path, value) 对，筛选以 stage_key 开头的路径
+        # 特殊处理：personnel阶段的多个人员，每个人后添加PERSONNEL_ITEM_POST_ACTION
+        elif stage_key == "personnel" and isinstance(data.get("personnel"), list):
+            personnel_list = data.get("personnel") or []
+            for person_idx, person in enumerate(personnel_list):
+                if not isinstance(person, dict):
+                    continue
+                
+                # 生成该人员的所有字段动作
+                person_actions = []
+                for path, value in self._flatten_json(person):
+                    if value is None or (isinstance(value, str) and value.strip() == ""):
+                        continue
+                    
+                    # 构建完整路径
+                    full_path = f"personnel[{person_idx}].{path}" if path != "personnel" else f"personnel[{person_idx}]"
+                    norm_path = self._normalize_array_path(full_path)
+                    
+                    meta = mapping.get(norm_path)
+                    if not meta:
+                        continue
+                    mark = (meta.get("type") or "").lower().strip()
+                    label = meta.get("label") or norm_path
+                    if mark == "":
+                        continue
+                    
+                    if mark == "i":
+                        person_actions.append(f"在{label}输入框中输入{value}")
+                    elif mark == "c":
+                        person_actions.append(f"在{label}下拉框中选择{value}")
+                    elif mark == "r":
+                        person_actions.append(f"点击{label}radio button")
+                    elif mark == "d":
+                        person_actions.append(f"选择日期{label}为{value}")
+                
+                # 添加该人员的动作
+                stage_actions.extend(person_actions)
+                
+                # 如果不是最后一个人员，添加PERSONNEL_ITEM_POST_ACTION
+                if person_idx < len(personnel_list) - 1:
+                    # 将PERSONNEL_ITEM_POST_ACTION按行分割，每行单独添加
+                    post_action_lines = [line.strip() for line in self.PERSONNEL_ITEM_POST_ACTION.split('\n') if line.strip()]
+                    stage_actions.extend(post_action_lines)
+            
+            return stage_actions
+        
+        # 普通处理：遍历所有 (path, value) 对，筛选以 stage_key 开头的路径
         for path, value in self._flatten_json(data):
             if value is None or (isinstance(value, str) and value.strip() == ""):
                 continue
@@ -466,6 +533,9 @@ class WorkflowCore:
             # 已经为expenses[].amount生成过定制语句，避免重复
             norm_path = self._normalize_array_path(path)
             if stage_key == "expenses" and norm_path == "expenses[].amount":
+                continue
+            # 已经为personnel处理过，避免重复
+            if stage_key == "personnel":
                 continue
 
             meta = mapping.get(norm_path)
