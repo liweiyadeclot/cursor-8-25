@@ -44,8 +44,9 @@ class WorkflowCore:
         
         # 1. 登录阶段跳转操作说明
         self.LOGIN_TRANSITION = textwrap.dedent("""
-            将验证码图片保存至LLM_Integration目录下，命名为example.jpg
-            调用LLM_Integration目录下的OCR.py，获取程序输出的验证码，输入到验证码输入框中
+            将验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg
+            运行C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下的OCR.py，得到读取的验证码
+            输入验证码
             点击登录按钮
             点击网上预约报账按钮
             点击申请报销单按钮
@@ -75,32 +76,36 @@ class WorkflowCore:
         
         # 6. 差旅信息跳转操作说明
         self.TRAVEL_TRANSITION = textwrap.dedent("""
-            - 进入差旅信息填写页面
-            - 填写出差人员姓名
-            - 选择人员类型
-            - 填写出差地点
-            - 添加多个出差人员（如有）
-            - 验证差旅信息完整性
-            - 点击下一步按钮
-            - 等待页面跳转
+            在填写完信息后，请你再检查一下人员信息中的人员类型有没有正确填写，网页有的时候会覆盖之前的填写
+            点击下一步按钮
+            等待页面跳转
         """).strip()
         
         # 7. 劳务信息跳转操作说明
         self.LABOR_TRANSITION = textwrap.dedent("""
-            - 进入劳务信息填写页面
-            - 选择劳务费类型
-            - 填写发放事由
-            - 填写劳务金额
-            - 添加多个劳务项目（如有）
-            - 验证劳务信息完整性
-            - 点击提交按钮
-            - 等待提交确认
+            点击下一步按钮
         """).strip()
         
         # 8. 单个人员信息填写后操作
         self.PERSONNEL_ITEM_POST_ACTION = textwrap.dedent("""
             点击提交按钮
             等待页面响应
+        """).strip()
+        
+        # 9. 单个劳务酬金信息填写后操作
+        self.LABOR_ITEM_POST_ACTION = textwrap.dedent("""
+            点击确定按钮
+            等待页面响应
+        """).strip()
+
+        # 10. 劳务信息(laborInfo)填写结束后，跳转到劳务人员(laborPerson)的操作说明
+        self.LABORINFO_TO_LABORPERSON_TRANSITION = textwrap.dedent("""
+            点击下一步按钮
+        """).strip()
+
+        # 11. 开始填写 laborPerson 之前的操作说明
+        self.LABORPERSON_PRE_ACTION = textwrap.dedent("""
+            点击单笔录入按钮
         """).strip()
     
     def get_transition_description(self, stage: WorkflowStage) -> str:
@@ -212,8 +217,9 @@ class WorkflowCore:
             "你是一个专业的财务报销信息提取助手。请从用户输入的自然语言中提取报销相关信息，"
             "并严格输出JSON且只输出JSON，不要包含任何其他文字。\n\n"
             "数值规范：\n"
-            "- 所有金额字段仅输出数字，不要带单位（例如 ‘500’ 而非 ‘500元’）。涉及字段：expenses[].amount、personnel[].amount、labor[].amount。\n"
-            "- 附件张数仅输出数字，不要带‘张’（例如 ‘3’ 而非 ‘3张’）。涉及字段：project.attachmentCount。\n\n"
+            "- 所有金额字段仅输出数字，不要带单位（例如 '500' 而非 '500元'）。涉及字段：expenses[].amount、personnel[].amount、labor[].amount、travel[].airfare、travel[].trainfare、travel[].otherTransport、travel[].accommodation。\n"
+            "- 附件张数仅输出数字，不要带'张'（例如 '3' 而非 '3张'）。涉及字段：project.attachmentCount。\n"
+            "- 布尔值字段输出true/false，不要输出中文。涉及字段：travel[].mealArranged、travel[].transportArranged。\n\n"
             "键名与结构：\n"
             "{\n"
             "  \"businessType\": \"业务大类\",\n"
@@ -222,8 +228,10 @@ class WorkflowCore:
             "  \"expenses\": [{\n    \"category\": \"科目类型\",\n    \"amount\": \"金额(数字)\"\n  }],\n"
             "  \"personnel\": [{\n    \"name\": \"姓名\",\n    \"ID\": \"学工号\",\n    \"bankCard\": \"银行卡信息\",\n    \"amount\": \"个人金额(数字)\"\n  }],\n"
             "  \"appointment\": {\n    \"date\": \"报销时间\",\n    \"location\": \"地点\"\n  },\n"
-            "  \"travel\": [{\n    \"name\": \"姓名\",\n    \"personnelType\": \"人员类型\",\n    \"destination\": \"出差地点\"\n  }],\n"
-            "  \"labor\": [{\n    \"laborType\": \"劳务费类型\",\n    \"amount\": \"金额(数字)\",\n    \"reason\": \"发放事由\"\n  }]\n"
+            "  \"travelPerson\": [{\n    \"ID\": \"出差人\",\n    \"name\": \"姓名\",\n    \"personType\": \"人员类型\",\n    \"workUnit\": \"工作单位\",\n    \"title\": \"职称\"\n  }],\n"
+            "  \"travelExpenses\": [{\n    \"province\": \"省份\",\n    \"startTime\": \"起始时间\",\n    \"endTime\": \"结束时间\",\n    \"airfare\": \"飞机票(数字)\",\n    \"trainfare\": \"火车票(数字)\",\n    \"otherTransport\": \"其他交通费(数字)\",\n    \"accommodation\": \"住宿费(数字)\",\n    \"mealArranged\": \"是否安排伙食(true/false)\",\n    \"transportArranged\": \"是否安排交通(true/false)\"\n  }],\n"
+            "  \"laborInfo\": {\n    \"personnelCategory\": \"人员类别\",\n    \"remunerationNature\": \"酬金性质\",\n    \"laborType\": \"劳务费类型\",\n    \"reason\": \"发放事由\",\n    \"remarks\": \"酬金信息备注\",\n    \"paymentStandard\": \"发放标准\",\n    \"startTime\": \"开始时间\",\n    \"endTime\": \"结束时间\"\n  },\n"
+            "  \"laborPerson\": [{\n    \"employeeId\": \"工号/证件号\",\n    \"singleEntryAmount\": \"单笔录入金额(数字)\"\n  }]\n"
             "}\n\n"
             f"用户输入：{user_input}\n"
         )
@@ -370,6 +378,7 @@ class WorkflowCore:
 
     def build_playwright_prompt_from_data(self, data: Dict[str, Any]) -> str:
         """根据提取的JSON数据与Excel映射，生成Playwright MCP提示词字符串。"""
+        # 只读取现有映射，不创建或修改Excel文件
         mapping = self.load_field_type_mapping()
         parts: List[str] = []
 
@@ -378,9 +387,19 @@ class WorkflowCore:
         if business_type:
             parts.append(f"业务大类：{business_type}。以下是需要执行的页面操作：")
 
-        # 若为“报销业务”，按阶段顺序生成并在每阶段后追加跳转说明
+        # 若为"报销业务"，按阶段顺序生成并在每阶段后追加跳转说明
         if (business_type or "").strip() == "报销业务":
             staged = self._build_prompt_reimbursement_flow(data, mapping)
+            return staged
+        
+        # 若为"业务出差旅费"，按差旅费流程生成
+        if (business_type or "").strip() == "业务出差旅费":
+            staged = self._build_prompt_travel_flow(data, mapping)
+            return staged
+        
+        # 若为"酬金业务"，按酬金流程生成
+        if (business_type or "").strip() == "酬金业务":
+            staged = self._build_prompt_labor_flow(data, mapping)
             return staged
 
         for path, value in self._flatten_json(data):
@@ -447,6 +466,82 @@ class WorkflowCore:
                 # 阶段动作句子，每个动作换行
                 for i, action in enumerate(actions):
                     segments.append(action)
+            # 在 laborInfo 阶段填写完毕后，插入跳转到 laborPerson 的说明
+            if stage_key == "laborInfo":
+                segments.extend([line.strip() for line in self.LABORINFO_TO_LABORPERSON_TRANSITION.split('\n') if line.strip()])
+            # 阶段跳转说明（无论是否有动作，都附加，便于保持固定流程）
+            if transition_text:
+                # 将跳转文本按行分割，每行单独作为一个segment
+                transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
+                segments.extend(transition_lines)
+        
+        # 为每行添加序号
+        numbered_segments = []
+        for i, segment in enumerate(segments, 1):
+            if segment.strip():
+                numbered_segments.append(f"{i}. {segment.strip()}")
+        
+        return "\n".join(numbered_segments)
+
+    def _build_prompt_travel_flow(self, data: Dict[str, Any], mapping: Dict[str, Dict[str, str]]) -> str:
+        """按业务出差旅费的阶段顺序构建提示词，并在每一阶段后拼接跳转说明。"""
+        stage_order = [
+            ("login", self.LOGIN_TRANSITION),
+            ("project", self.PROJECT_TRANSITION),
+            ("travelPerson", ""),  # 不附加跳转说明
+            ("travelExpenses", self.TRAVEL_TRANSITION),  # 只在travelExpenses后附加
+            ("personnel", self.PERSONNEL_TRANSITION),
+            ("appointment", self.APPOINTMENT_TRANSITION),
+        ]
+        segments: List[str] = []
+        # 添加打开网页指令
+        segments.append("请你调用Playwright MCP，执行以下命令，一次性执行完")
+        segments.append("打开https://cwcx.uestc.edu.cn/WFManager/login.jsp")
+        # 开头标题
+        segments.append("业务大类：业务出差旅费。以下是需要执行的页面操作：")
+
+        for stage_key, transition_text in stage_order:
+            actions = self._generate_actions_for_stage(data, stage_key, mapping)
+            if actions:
+                # 阶段动作句子，每个动作换行
+                for i, action in enumerate(actions):
+                    segments.append(action)
+            # 阶段跳转说明（无论是否有动作，都附加，便于保持固定流程）
+            if transition_text:
+                # 将跳转文本按行分割，每行单独作为一个segment
+                transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
+                segments.extend(transition_lines)
+        
+        # 为每行添加序号
+        numbered_segments = []
+        for i, segment in enumerate(segments, 1):
+            if segment.strip():
+                numbered_segments.append(f"{i}. {segment.strip()}")
+        
+        return "\n".join(numbered_segments)
+
+    def _build_prompt_labor_flow(self, data: Dict[str, Any], mapping: Dict[str, Dict[str, str]]) -> str:
+        """按酬金业务的阶段顺序构建提示词，并在每一阶段后拼接跳转说明。"""
+        stage_order = [
+            ("login", self.LOGIN_TRANSITION),
+            ("project", self.PROJECT_TRANSITION),
+            ("laborInfo", self.LABOR_TRANSITION),
+            ("laborPerson", self.PERSONNEL_TRANSITION),
+            ("appointment", self.APPOINTMENT_TRANSITION),
+        ]
+        segments: List[str] = []
+        # 添加打开网页指令
+        segments.append("请你调用Playwright MCP，执行以下命令，一次性执行完")
+        segments.append("打开https://cwcx.uestc.edu.cn/WFManager/login.jsp")
+        # 开头标题
+        segments.append("业务大类：酬金业务。以下是需要执行的页面操作：")
+
+        for stage_key, transition_text in stage_order:
+            actions = self._generate_actions_for_stage(data, stage_key, mapping)
+            if actions:
+                # 阶段动作句子，每个动作换行
+                for i, action in enumerate(actions):
+                    segments.append(action)
             # 阶段跳转说明（无论是否有动作，都附加，便于保持固定流程）
             if transition_text:
                 # 将跳转文本按行分割，每行单独作为一个segment
@@ -477,6 +572,230 @@ class WorkflowCore:
                 amt = item.get("amount")
                 if cat is not None and amt not in (None, ""):
                     stage_actions.append(f"向{cat}输入框填写{amt}")
+        
+        # 特殊处理：travelPerson阶段的多个出差人员
+        elif stage_key == "travelPerson" and isinstance(data.get("travelPerson"), list):
+            travel_person_list = data.get("travelPerson") or []
+            print(f"DEBUG: 处理travelPerson阶段，共{len(travel_person_list)}个出差人员")
+            for person_idx, travel_person in enumerate(travel_person_list):
+                if not isinstance(travel_person, dict):
+                    continue
+                
+                print(f"DEBUG: 处理第{person_idx}个出差人员: {travel_person}")
+                
+                # 生成该出差人员的所有字段动作
+                person_actions = []
+                for path, value in self._flatten_json(travel_person):
+                    if value is None or (isinstance(value, str) and value.strip() == ""):
+                        continue
+                    
+                    # 构建完整路径
+                    full_path = f"travelPerson[{person_idx}].{path}" if path != "travelPerson" else f"travelPerson[{person_idx}]"
+                    norm_path = self._normalize_array_path(full_path)
+                    
+                    print(f"DEBUG: 字段路径: {path} -> {full_path} -> {norm_path}, 值: {value}")
+                    
+                    meta = mapping.get(norm_path)
+                    print(f"DEBUG: 映射信息: {meta}")
+                    
+                    if not meta:
+                        print(f"DEBUG: 未找到映射，跳过字段: {norm_path}")
+                        continue
+                    
+                    mark = (meta.get("type") or "").lower().strip()
+                    label = meta.get("label") or norm_path
+                    
+                    print(f"DEBUG: 标记: {mark}, 标签: {label}")
+                    
+                    if mark == "":
+                        print(f"DEBUG: 标记为空，跳过字段: {norm_path}")
+                        continue
+                    
+                    if mark == "i":
+                        action = f"在{label}输入框中输入{value}"
+                        person_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "c":
+                        action = f"在{label}下拉框中选择{value}"
+                        person_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "r":
+                        action = f"点击{label}radio button"
+                        person_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "d":
+                        action = f"选择日期{label}为{value}"
+                        person_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                
+                # 添加该出差人员的动作
+                stage_actions.extend(person_actions)
+                print(f"DEBUG: 当前出差人员动作数: {len(person_actions)}")
+            
+            print(f"DEBUG: travelPerson阶段总动作数: {len(stage_actions)}")
+            return stage_actions
+        
+        # 特殊处理：travelExpenses阶段的费用信息
+        elif stage_key == "travelExpenses" and isinstance(data.get("travelExpenses"), list):
+            travel_expenses_list = data.get("travelExpenses") or []
+            print(f"DEBUG: 处理travelExpenses阶段，共{len(travel_expenses_list)}个费用项目")
+            for expense_idx, travel_expense in enumerate(travel_expenses_list):
+                if not isinstance(travel_expense, dict):
+                    continue
+                
+                print(f"DEBUG: 处理第{expense_idx}个费用项目: {travel_expense}")
+                
+                # 生成该费用项目的所有字段动作
+                expense_actions = []
+                for path, value in self._flatten_json(travel_expense):
+                    if value is None or (isinstance(value, str) and value.strip() == ""):
+                        continue
+                    
+                    # 构建完整路径
+                    full_path = f"travelExpenses[{expense_idx}].{path}" if path != "travelExpenses" else f"travelExpenses[{expense_idx}]"
+                    norm_path = self._normalize_array_path(full_path)
+                    
+                    print(f"DEBUG: 字段路径: {path} -> {full_path} -> {norm_path}, 值: {value}")
+                    
+                    meta = mapping.get(norm_path)
+                    print(f"DEBUG: 映射信息: {meta}")
+                    
+                    if not meta:
+                        print(f"DEBUG: 未找到映射，跳过字段: {norm_path}")
+                        continue
+                    
+                    mark = (meta.get("type") or "").lower().strip()
+                    label = meta.get("label") or norm_path
+                    
+                    print(f"DEBUG: 标记: {mark}, 标签: {label}")
+                    
+                    if mark == "":
+                        print(f"DEBUG: 标记为空，跳过字段: {norm_path}")
+                        continue
+                    
+                    if mark == "i":
+                        action = f"在{label}输入框中输入{value}"
+                        expense_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "c":
+                        action = f"在{label}下拉框中选择{value}"
+                        expense_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "r":
+                        action = f"点击{label}radio button"
+                        expense_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "d":
+                        action = f"选择日期{label}为{value}"
+                        expense_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
+                
+                # 添加该费用项目的动作
+                stage_actions.extend(expense_actions)
+                print(f"DEBUG: 当前费用项目动作数: {len(expense_actions)}")
+            
+            print(f"DEBUG: travelExpenses阶段总动作数: {len(stage_actions)}")
+            return stage_actions
+        
+        # 特殊处理：laborInfo阶段的劳务信息（单对象）
+        elif stage_key == "laborInfo" and isinstance(data.get("laborInfo"), dict):
+            labor_item = data.get("laborInfo")
+            if not isinstance(labor_item, dict):
+                return []
+            
+            # 生成该劳务信息的字段动作（只处理laborType和reason字段）
+            labor_actions = []
+            for path, value in self._flatten_json(labor_item):
+                if value is None or (isinstance(value, str) and value.strip() == ""):
+                    continue
+                
+                # 只处理laborInfo相关字段
+                if path not in ["laborType", "reason", "personnelCategory", "remunerationNature", "remarks", "paymentStandard", "startTime", "endTime"]:
+                    continue
+                
+                # 构建完整路径（与Excel映射一致）
+                full_path = f"laborInfo.{path}"
+                norm_path = self._normalize_array_path(full_path)
+                
+                meta = mapping.get(norm_path)
+                if not meta:
+                    continue
+                mark = (meta.get("type") or "").lower().strip()
+                label = meta.get("label") or norm_path
+                if mark == "":
+                    continue
+                
+                if mark == "i":
+                    labor_actions.append(f"在{label}输入框中输入{value}")
+                elif mark == "c":
+                    labor_actions.append(f"在{label}下拉框中选择{value}")
+                elif mark == "r":
+                    labor_actions.append(f"点击{label}radio button")
+                elif mark == "d":
+                    labor_actions.append(f"选择日期{label}为{value}")
+            
+            # 添加该劳务信息的动作
+            stage_actions.extend(labor_actions)
+            
+            return stage_actions
+        
+        # 特殊处理：laborPerson阶段的多个劳务人员，每个人后添加LABOR_ITEM_POST_ACTION
+        elif stage_key == "laborPerson" and isinstance(data.get("laborPerson"), list):
+            labor_list = data.get("laborPerson") or []
+            for labor_idx, labor_person in enumerate(labor_list):
+                if not isinstance(labor_person, dict):
+                    continue
+                
+                # 生成该劳务人员的字段动作（只处理amount字段）
+                labor_actions = []
+                # 在每位人员信息开始前，插入预操作说明
+                pre_lines = [line.strip() for line in self.LABORPERSON_PRE_ACTION.split('\n') if line.strip()]
+                stage_actions.extend(pre_lines)
+                for path, value in self._flatten_json(labor_person):
+                    if value is None or (isinstance(value, str) and value.strip() == ""):
+                        continue
+                    
+                    # 只处理laborPerson相关字段
+                    if path not in ["employeeId", "amount", "singleEntryAmount"]:
+                        continue
+                    
+                    # 构建完整路径（与Excel映射一致）
+                    full_path = f"laborPerson[{labor_idx}].{path}"
+                    norm_path = self._normalize_array_path(full_path)
+                    
+                    meta = mapping.get(norm_path)
+                    if not meta:
+                        # 映射缺失时的容错：提供默认类型与中文名称
+                        default_labels = {
+                            "laborPerson[].employeeId": "工号/证件号",
+                            "laborPerson[].amount": "金额",
+                            "laborPerson[].singleEntryAmount": "单笔录入金额",
+                        }
+                        meta = {"type": "i", "label": default_labels.get(norm_path, norm_path)}
+                    mark = (meta.get("type") or "").lower().strip()
+                    label = meta.get("label") or norm_path
+                    if mark == "":
+                        continue
+                    
+                    if mark == "i":
+                        labor_actions.append(f"在{label}输入框中输入{value}")
+                    elif mark == "c":
+                        labor_actions.append(f"在{label}下拉框中选择{value}")
+                    elif mark == "r":
+                        labor_actions.append(f"点击{label}radio button")
+                    elif mark == "d":
+                        labor_actions.append(f"选择日期{label}为{value}")
+                
+                # 添加该劳务人员的动作
+                stage_actions.extend(labor_actions)
+                
+                # 如果不是最后一个劳务人员，添加LABOR_ITEM_POST_ACTION
+                if labor_idx < len(labor_list) - 1:
+                    # 将LABOR_ITEM_POST_ACTION按行分割，每行单独添加
+                    post_action_lines = [line.strip() for line in self.LABOR_ITEM_POST_ACTION.split('\n') if line.strip()]
+                    stage_actions.extend(post_action_lines)
+            
+            return stage_actions
         
         # 特殊处理：personnel阶段的多个人员，每个人后添加PERSONNEL_ITEM_POST_ACTION
         elif stage_key == "personnel" and isinstance(data.get("personnel"), list):
@@ -534,6 +853,12 @@ class WorkflowCore:
             norm_path = self._normalize_array_path(path)
             if stage_key == "expenses" and norm_path == "expenses[].amount":
                 continue
+            # 已经为travelPerson和travelExpenses处理过，避免重复
+            if stage_key in ["travelPerson", "travelExpenses"]:
+                continue
+            # 已经为laborInfo和laborPerson处理过，避免重复
+            if stage_key in ["laborInfo", "laborPerson"]:
+                continue
             # 已经为personnel处理过，避免重复
             if stage_key == "personnel":
                 continue
@@ -556,7 +881,7 @@ class WorkflowCore:
         return stage_actions
 
     def build_playwright_prompt_from_input(self, user_input: str) -> Dict[str, Any]:
-        """一体化：提取→（可选）更新映射→生成提示词。
+        """一体化：提取→读取映射→生成提示词。
 
         Returns:
             { prompt: str, data: dict }
@@ -565,10 +890,7 @@ class WorkflowCore:
         if not isinstance(data, dict) or "error" in data:
             return {"error": data.get("error", "提取失败"), "data": data}
 
-        # 补齐映射（不会覆盖已有设置）
-        fields = self.collect_field_paths(data)
-        self.ensure_mapping_excel(fields)
-
+        # 只读取现有映射，不修改Excel文件
         prompt = self.build_playwright_prompt_from_data(data)
         return {"prompt": prompt, "data": data}
 
