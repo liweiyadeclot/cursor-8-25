@@ -147,14 +147,14 @@ def _build_structured_entry_for_group(rows: List[tuple], headers: HeaderMap) -> 
     """将同一"序号"下的行转为结构化字典，供LLM生成自然语言。"""
     first = rows[0]
     
-    # 根据业务大类确定结构
-    business_type = _get(first, headers, "业务大类") or _get(first, headers, "业务类型") or "报销业务"
+    # 根据业务大类确定结构（需要去除$$标记）
+    business_type = (_get(first, headers, "业务大类") or _get(first, headers, "业务类型") or _get(first, headers, "选择业务大类") or "报销业务").replace("$$", "")
     
     entry: Dict[str, Any] = {
         "businessType": business_type,
         "login": {
-            "username": _get(first, headers, "账号") or _get(first, headers, "用户名"),
-            "password": _get(first, headers, "密码"),
+            "username": _get(first, headers, "账号") or _get(first, headers, "用户名") or _get(first, headers, "登录界面工号"),
+            "password": _get(first, headers, "密码") or _get(first, headers, "登录界面密码"),
         },
         "project": {
             "projectNumber": _get(first, headers, "报销项目号") or _get(first, headers, "项目号"),
@@ -167,8 +167,10 @@ def _build_structured_entry_for_group(rows: List[tuple], headers: HeaderMap) -> 
         "personnel": [],
         "travelPerson": [],
         "travelExpenses": [],
+        "laborInfo": {},
+        "laborPerson": [],
         "appointment": {
-            "date": _get(first, headers, "日期"),
+            "date": _get(first, headers, "日期") or _get(first, headers, "劳务预约时间"),
             "campus": (_get(first, headers, "校区") or "").replace("$$", ""),
         },
     }
@@ -231,6 +233,29 @@ def _build_structured_entry_for_group(rows: List[tuple], headers: HeaderMap) -> 
                 "mealArranged": "true" if meal_arranged and "已安排" in meal_arranged else "false",
                 "transportArranged": "true" if transport_arranged and "已安排" in transport_arranged else "false",
                 "transportSubsidy": transport_subsidy,
+            })
+
+    # 提取劳务信息（适用于劳务业务，laborInfo为单个对象）
+    entry["laborInfo"] = {
+        "personnelCategory": _get(first, headers, "人员类别"),
+        "remunerationNature": _get(first, headers, "酬金性质"),
+        "laborType": (_get(first, headers, "劳务费类型") or "").replace("$$", ""),
+        "reason": _get(first, headers, "发放事由"),
+        "remarks": _get(first, headers, "酬金信息备注"),
+        "paymentStandard": _normalize_number(_get(first, headers, "发放标准")),
+        "startTime": _get(first, headers, "开始时间"),
+        "endTime": _get(first, headers, "结束时间"),
+    }
+
+    # 汇总劳务人员信息（适用于劳务业务，laborPerson为数组）
+    for r in rows:
+        employee_id = _get(r, headers, "工号/证件号")
+        single_entry_amount = _normalize_number(_get(r, headers, "单笔录入金额"))
+        
+        if employee_id or single_entry_amount:
+            entry["laborPerson"].append({
+                "employeeId": employee_id,
+                "singleEntryAmount": single_entry_amount,
             })
 
     return entry
@@ -342,7 +367,7 @@ def generate_nl_from_excel(filepath: str, sheet_name: Optional[str] = None) -> L
 def generate_single_nl_from_excel(
     filepath: str,
     sheet_name: Optional[str],
-    serial: str | int,
+    serial,
     use_llm: bool = True,
 ) -> str:
     """按指定序号返回该组的自然语言总结。
@@ -350,7 +375,7 @@ def generate_single_nl_from_excel(
     Args:
         filepath: Excel 文件路径
         sheet_name: 工作表名（可为 None，表示激活表）
-        serial: 目标序号（字符串或整数，按表中“序号”列匹配）
+        serial: 目标序号（字符串或整数，按表中"序号"列匹配）
         use_llm: 为 True 时调用本地 Qwen 生成；失败则回退到本地模板
 
     Returns:
@@ -393,6 +418,42 @@ def generate_single_nl_from_excel(
             pass
     # 回退到本地模板
     return _build_summary_for_group(rows, headers)
+
+
+def excel_to_json_direct(
+    filepath: str,
+    sheet_name: Optional[str],
+    serial,
+) -> Dict[str, Any]:
+    """直接将Excel指定序号转换为JSON结构（跳过LLM自然语言生成环节）。
+    
+    Args:
+        filepath: Excel 文件路径
+        sheet_name: 工作表名（可为 None，表示激活表）
+        serial: 目标序号（字符串或整数，按表中"序号"列匹配）
+        
+    Returns:
+        该序号的JSON数据字典（未找到则返回空字典）
+    """
+    wb = load_workbook(filepath, data_only=True)
+    ws = wb[sheet_name] if sheet_name else wb.active
+
+    headers = _read_sheet_headers(ws)
+    data_rows: List[tuple] = [r for r in ws.iter_rows(min_row=2, values_only=True) if any(c is not None for c in r)]
+    groups = _group_rows_by_serial(data_rows, headers)
+
+    target_key = str(serial)
+    if target_key not in groups:
+        # 宽松匹配
+        alt = {str(k).strip(): v for k, v in groups.items()}
+        if target_key.strip() not in alt:
+            return {}
+        rows = alt[target_key.strip()]
+    else:
+        rows = groups[target_key]
+
+    # 直接调用已有的结构化函数
+    return _build_structured_entry_for_group(rows, headers)
 
 
 def main() -> int:

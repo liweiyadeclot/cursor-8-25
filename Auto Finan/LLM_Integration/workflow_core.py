@@ -441,6 +441,8 @@ class WorkflowCore:
                 parts.append(f"点击{label}radio button")
             elif mark == "d":
                 parts.append(f"选择日期{label}为{value}")
+            elif mark == "empty":
+                parts.append(f"{label}内容为{value}")
             else:
                 # 未知标记，按参考信息忽略
                 continue
@@ -630,6 +632,10 @@ class WorkflowCore:
                         action = f"选择日期{label}为{value}"
                         person_actions.append(action)
                         print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "empty":
+                        action = f"{label}内容为{value}"
+                        person_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
                 
                 # 添加该出差人员的动作
                 stage_actions.extend(person_actions)
@@ -692,6 +698,10 @@ class WorkflowCore:
                         action = f"选择日期{label}为{value}"
                         expense_actions.append(action)
                         print(f"DEBUG: 添加动作: {action}")
+                    elif mark == "empty":
+                        action = f"{label}内容为{value}"
+                        expense_actions.append(action)
+                        print(f"DEBUG: 添加动作: {action}")
                 
                 # 添加该费用项目的动作
                 stage_actions.extend(expense_actions)
@@ -736,6 +746,8 @@ class WorkflowCore:
                     labor_actions.append(f"点击{label}radio button")
                 elif mark == "d":
                     labor_actions.append(f"选择日期{label}为{value}")
+                elif mark == "empty":
+                    labor_actions.append(f"{label}内容为{value}")
             
             # 添加该劳务信息的动作
             stage_actions.extend(labor_actions)
@@ -788,6 +800,8 @@ class WorkflowCore:
                         labor_actions.append(f"点击{label}radio button")
                     elif mark == "d":
                         labor_actions.append(f"选择日期{label}为{value}")
+                    elif mark == "empty":
+                        labor_actions.append(f"{label}内容为{value}")
                 
                 # 添加该劳务人员的动作
                 stage_actions.extend(labor_actions)
@@ -833,6 +847,8 @@ class WorkflowCore:
                         person_actions.append(f"点击{label}radio button")
                     elif mark == "d":
                         person_actions.append(f"选择日期{label}为{value}")
+                    elif mark == "empty":
+                        person_actions.append(f"{label}内容为{value}")
                 
                 # 添加该人员的动作
                 stage_actions.extend(person_actions)
@@ -881,6 +897,8 @@ class WorkflowCore:
                 stage_actions.append(f"点击{label}radio button")
             elif mark == "d":
                 stage_actions.append(f"选择日期{label}为{value}")
+            elif mark == "empty":
+                stage_actions.append(f"{label}内容为{value}")
         return stage_actions
 
     def build_playwright_prompt_from_input(self, user_input: str) -> Dict[str, Any]:
@@ -984,4 +1002,101 @@ def process_excel_to_mcp_prompt(excel_path: str, sheet_name: str = None) -> List
         
     except Exception as e:
         print(f"处理Excel文件时发生错误: {e}")
+        return []
+
+
+def process_excel_to_mcp_direct(excel_path: str, sheet_name: str, serial) -> str:
+    """
+    直接从Excel生成MCP提示词（跳过LLM自然语言生成环节）
+    
+    Args:
+        excel_path: Excel文件路径
+        sheet_name: 工作表名称
+        serial: 目标序号（字符串或整数）
+        
+    Returns:
+        生成的MCP提示词字符串（失败返回空字符串）
+    """
+    try:
+        # 导入Excel处理模块
+        from excel_to_nl import excel_to_json_direct
+        
+        # 直接从Excel转JSON
+        json_data = excel_to_json_direct(excel_path, sheet_name, serial)
+        
+        if not json_data:
+            print(f"未找到序号 {serial} 的数据")
+            return ""
+        
+        # 初始化工作流程控制器并生成MCP提示词
+        workflow = WorkflowCore()
+        mcp_prompt = workflow.build_playwright_prompt_from_data(json_data)
+        
+        return mcp_prompt
+        
+    except Exception as e:
+        print(f"处理Excel文件时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return ""
+
+
+def batch_process_excel_to_mcp_direct(excel_path: str, sheet_name: str) -> List[Dict[str, Any]]:
+    """
+    批量处理Excel所有序号，直接生成MCP提示词（跳过LLM）
+    
+    Args:
+        excel_path: Excel文件路径
+        sheet_name: 工作表名称
+        
+    Returns:
+        包含每个序号的JSON数据和MCP提示词的列表
+    """
+    try:
+        # 导入Excel处理模块
+        from excel_to_nl import excel_to_json_direct
+        from openpyxl import load_workbook
+        
+        # 读取所有序号
+        wb = load_workbook(excel_path, data_only=True)
+        ws = wb[sheet_name] if sheet_name else wb.active
+        
+        # 获取所有唯一序号
+        serials = set()
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row and row[0]:  # 假设第一列是序号
+                serials.add(str(row[0]))
+        
+        # 初始化工作流程控制器
+        workflow = WorkflowCore()
+        
+        # 批量处理
+        results = []
+        for serial in sorted(serials, key=lambda x: int(x) if x.isdigit() else 0):
+            print(f"=== 处理序号 {serial} ===")
+            
+            # 直接从Excel转JSON
+            json_data = excel_to_json_direct(excel_path, sheet_name, serial)
+            
+            if not json_data:
+                print(f"序号 {serial}: 未找到数据")
+                continue
+            
+            # 生成MCP提示词
+            mcp_prompt = workflow.build_playwright_prompt_from_data(json_data)
+            
+            results.append({
+                "serial": serial,
+                "json_data": json_data,
+                "mcp_prompt": mcp_prompt
+            })
+            
+            print(f"序号 {serial}: MCP提示词已生成（{len(mcp_prompt)} 字符）")
+        
+        return results
+        
+    except Exception as e:
+        print(f"批量处理Excel文件时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
         return []
