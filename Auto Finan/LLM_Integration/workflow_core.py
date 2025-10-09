@@ -72,6 +72,9 @@ class WorkflowCore:
         self.APPOINTMENT_TRANSITION = textwrap.dedent("""
             点击预约按钮
             点击打印确认单按钮
+            调用test_mouse_keyboard.py，执行一个python自动点击的脚本，脚本的第一个参数为保存路径，第二个参数为保存文件名，请你以当前页面中的信息，以报销单号-项目号-金额的格式，输入第二个参数
+            等待刚刚运行的脚本运行完毕
+            点击返回按钮
         """).strip()
         
         # 6. 差旅信息跳转操作说明
@@ -894,6 +897,23 @@ class WorkflowCore:
         prompt = self.build_playwright_prompt_from_data(data)
         return {"prompt": prompt, "data": data}
 
+    # 新增：API风格方法，入参为自然语言，直接返回MCP提示词字符串
+    def generate_mcp_prompt_from_nl(self, nl_text: str) -> str:
+        """将报销自然语言直接转换为 MCP 提示词字符串。
+
+        Args:
+            nl_text: 报销相关自然语言
+
+        Returns:
+            仅返回生成的 MCP 提示词字符串；若失败则返回空字符串
+        """
+        result = self.build_playwright_prompt_from_input(nl_text)
+        if isinstance(result, dict):
+            if result.get("error"):
+                return ""
+            return result.get("prompt", "")
+        return result if isinstance(result, str) else ""
+
 if __name__ == "__main__":
     workflow = WorkflowCore()
     try:
@@ -920,3 +940,48 @@ if __name__ == "__main__":
                 print(prompt or "(无可用指令，请检查Excel映射或输入内容)")
     except KeyboardInterrupt:
         print("\n已取消。")
+
+
+def process_excel_to_mcp_prompt(excel_path: str, sheet_name: str = None) -> List[str]:
+    """
+    从Excel文件生成自然语言，然后转换为MCP提示词
+    
+    Args:
+        excel_path: Excel文件路径
+        sheet_name: 工作表名称（可选）
+        
+    Returns:
+        每个序号的MCP提示词列表
+    """
+    try:
+        # 导入Excel处理模块
+        from excel_to_nl import generate_nl_from_excel
+        
+        # 从Excel生成自然语言
+        nl_summaries = generate_nl_from_excel(excel_path, sheet_name)
+        
+        # 初始化工作流程控制器
+        workflow = WorkflowCore()
+        
+        # 将每个自然语言转换为MCP提示词
+        mcp_prompts = []
+        for i, nl_text in enumerate(nl_summaries):
+            print(f"=== 处理序号 {i+1} ===")
+            print(f"自然语言: {nl_text}")
+            
+            # 提取JSON并生成MCP提示词
+            json_data = workflow.extract_form_json(nl_text)
+            if json_data:
+                mcp_prompt = workflow.build_playwright_prompt_from_data(json_data)
+                mcp_prompts.append(mcp_prompt)
+                print(f"MCP提示词已生成")
+            else:
+                print(f"无法从序号 {i+1} 中提取有效信息")
+                mcp_prompts.append("")
+            print("-" * 50)
+        
+        return mcp_prompts
+        
+    except Exception as e:
+        print(f"处理Excel文件时发生错误: {e}")
+        return []
