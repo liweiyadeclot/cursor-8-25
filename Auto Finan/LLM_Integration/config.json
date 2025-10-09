@@ -1,0 +1,31 @@
+{
+  "ExcelFilePath": "420财务050823.xlsx",
+  "MappingFilePath": "标题-ID.xlsx",
+  "SheetName": "2-劳务",
+  "MappingSheetName": "Sheet1",
+  "SaveFolderPath": "C:\\Users\\FH\\source\\repos\\Auto Finan\\prints",
+  "ScreenPositions": {
+    "first_button": {
+      "x": 1511,
+      "y": 906,
+      "description": "第一个要点击的按钮坐标"
+    },
+    "folder_input": {
+      "x": 753,
+      "y": 63,
+      "description": "文件夹路径输入框坐标"
+    },
+    "file_input": {
+      "x": 1040,
+      "y": 738,
+      "description": "文件名输入框坐标"
+    },
+    "confirm_button": {
+      "x": 947,
+      "y": 845,
+      "description": "确认按钮坐标"
+    }
+  }
+}
+
+
