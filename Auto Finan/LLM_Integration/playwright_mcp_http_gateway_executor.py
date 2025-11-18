@@ -52,6 +52,86 @@ logging.basicConfig(
 )
 logger = logging.getLogger("playwright_gateway")
 
+
+class LiveLog(list):
+    """在追加日志时同步打印到控制台的列表"""
+
+    def append(self, item):  # type: ignore[override]
+        text = str(item)
+        print(f"[MCP] {text}")
+        super().append(text)
+
+    def extend(self, iterable):  # type: ignore[override]
+        for item in iterable:
+            self.append(item)
+
+
+INPUT_SELECTOR_HINTS = {
+    "用户名": ["#loginid", "#zhLoginName", "input[name*='login']", "input[name*='user']", "input[id*='login']"],
+    "密码": ["#password", "#zhLoginPwd", "input[type='password']", "input[name*='pwd']"],
+    "验证码": ["#checkcode", "input[name*='code']"],
+    "报销项目号": ["input[name*='projectCode']", "input[id*='project']", "input[name*='projectNo']"],
+    "附件张数": ["input[name*='attachment']", "input[id*='attachment']", "input[name*='fileCount']"],
+    "出差人": ["input[name*='trav']", "input[name*='person']", "input[id*='trav']"],
+    "姓名": ["input[name*='name']", "input[id*='name']"],
+    "工作单位": ["input[name*='workUnit']", "input[id*='workUnit']"],
+    "职称": ["input[name*='title']", "input[id*='title']"],
+    "学工号": ["input[name*='student']", "input[name*='xgh']", "input[id*='student']"],
+    "金额": ["input[name*='amount']", "input[id*='amount']"],
+    "其他交通费": ["input[name*='transport']", "input[id*='transport']", "input[name*='other']"],
+}
+
+DROPDOWN_SELECTOR_HINTS = {
+    "人员类型": ["select[name*='personType']", "select[id*='personType']"],
+    "省份": ["select[name*='province']", "select[id*='province']"],
+    "是否安排伙食": ["select[name*='meal']", "select[id*='meal']"],
+    "是否安排交通": ["select[name*='transportArranged']", "select[id*='transportArranged']"],
+}
+
+BUTTON_SELECTOR_HINTS = {
+    "登录": ["#zhLogin", "#loginBtn", "button#zhLogin", "input#zhLogin", "button[name='login']", "input[type='submit'][value*='登录']"],
+    "网上预约报账": ["button:has-text('网上预约报账')", "a:has-text('网上预约报账')"],
+    "申请报销单": ["button:has-text('申请报销单')", "a:has-text('申请报销单')"],
+    "已阅读并同意": ["button:has-text('已阅读并同意')", "input[value*='已阅读']"],
+    "下一步": ["button:has-text('下一步')", "input[type='button'][value*='下一步']"],
+    "提交": ["button:has-text('提交')", "input[type='submit'][value*='提交']"],
+    "预约": ["button:has-text('预约')", "input[value*='预约']"],
+    "打印确认单": ["button:has-text('打印确认单')", "input[value*='打印确认单']"],
+    "返回": ["button:has-text('返回')", "a:has-text('返回')"],
+}
+
+IMAGE_SELECTOR_HINTS = {
+    "验证码": ["#checkcodeImg", "img#checkcodeImg", "img[id='checkcodeImg']", "img[src*='CheckCode']", "img[src*='checkcode']"]
+}
+
+
+def _deduplicate_selectors(selectors: List[str]) -> List[str]:
+    seen = set()
+    ordered = []
+    for sel in selectors:
+        if sel and sel not in seen:
+            ordered.append(sel)
+            seen.add(sel)
+    return ordered
+
+
+def _build_selector_candidates(label: str, hint_map: Dict[str, List[str]], defaults: List[str]) -> List[str]:
+    selectors: List[str] = []
+    for key, values in hint_map.items():
+        if key in label:
+            selectors.extend(values)
+    selectors.extend(hint_map.get(label, []))
+    selectors.extend(defaults)
+    return _deduplicate_selectors(selectors)
+
+
+def _extract_id_from_text(text: str) -> Optional[str]:
+    match = re.search(r"id[为=]\s*([A-Za-z0-9_\-]+)", text)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
 app = FastAPI(title="Playwright MCP HTTP Gateway (Executor)")
 
 
@@ -120,8 +200,7 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
             if match:
                 label, value = match.groups()
                 logs.append(f"正在在 {label} 输入框中输入: {value.strip()}")
-                # 尝试多种选择器
-                selectors = [
+                default_selectors = [
                     f"label:has-text('{label}') + input",
                     f"input[placeholder*='{label}']",
                     f"input[name*='{label}']",
@@ -129,6 +208,10 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
                     f"//label[contains(text(), '{label}')]/following-sibling::input[1]",
                     f"//label[contains(text(), '{label}')]/../input"
                 ]
+                selectors = _build_selector_candidates(label, INPUT_SELECTOR_HINTS, default_selectors)
+                field_id = _extract_id_from_text(label)
+                if field_id:
+                    selectors.insert(0, f"#{field_id}")
                 for selector in selectors:
                     try:
                         if selector.startswith("//"):
@@ -152,12 +235,16 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
                 label, value = match.groups()
                 value = value.strip().strip('"').strip("'")
                 logs.append(f"正在在 {label} 下拉框中选择: {value}")
-                selectors = [
+                default_selectors = [
                     f"label:has-text('{label}') + select",
                     f"select[name*='{label}']",
                     f"select[id*='{label}']",
                     f"//label[contains(text(), '{label}')]/following-sibling::select[1]"
                 ]
+                selectors = _build_selector_candidates(label, DROPDOWN_SELECTOR_HINTS, default_selectors)
+                selector_id = _extract_id_from_text(label)
+                if selector_id:
+                    selectors.insert(0, f"select#{selector_id}")
                 for selector in selectors:
                     try:
                         if selector.startswith("//"):
@@ -179,7 +266,7 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
             if match:
                 button_text = match.group(1)
                 logs.append(f"正在点击按钮: {button_text}")
-                selectors = [
+                default_selectors = [
                     f"button:has-text('{button_text}')",
                     f"a:has-text('{button_text}')",
                     f"input[type='button'][value='{button_text}']",
@@ -187,6 +274,10 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
                     f"//button[contains(text(), '{button_text}')]",
                     f"//a[contains(text(), '{button_text}')]"
                 ]
+                selectors = _deduplicate_selectors(BUTTON_SELECTOR_HINTS.get(button_text, []) + default_selectors)
+                button_id = _extract_id_from_text(button_text)
+                if button_id:
+                    selectors.insert(0, f"#{button_id}")
                 for selector in selectors:
                     try:
                         if selector.startswith("//"):
@@ -280,7 +371,7 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
                 logs.append(f"正在保存验证码图片到: {save_dir}/{filename}")
                 try:
                     # 查找验证码图片（尝试多种选择器）
-                    img_selectors = [
+                    img_selectors = IMAGE_SELECTOR_HINTS.get("验证码", []) + [
                         "img[src*='captcha']",
                         "img[src*='code']",
                         "img[alt*='验证码']",
@@ -289,6 +380,9 @@ def execute_step(page: Page, step: str, logs: List[str]) -> bool:
                         "//img[contains(@src, 'captcha')]",
                         "//img[contains(@src, 'code')]"
                     ]
+                    id_hint = _extract_id_from_text(step)
+                    if id_hint:
+                        img_selectors.insert(0, f"#{id_hint}")
                     
                     img_found = False
                     for selector in img_selectors:
@@ -403,7 +497,7 @@ def execute_playwright_prompt(prompt: str, headless: bool = False, browser_type:
         执行结果
     """
     execution_id = f"exec_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    logs = []
+    logs = LiveLog()
     steps = parse_mcp_prompt(prompt)
     
     logs.append(f"🚀 开始执行，共 {len(steps)} 个步骤")

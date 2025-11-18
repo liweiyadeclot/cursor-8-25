@@ -11,6 +11,7 @@ import os
 import json
 import requests
 import textwrap
+import traceback
 
 # 可选依赖（首次用到映射表时才需要）
 try:
@@ -44,10 +45,10 @@ class WorkflowCore:
         
         # 1. 登录阶段跳转操作说明
         self.LOGIN_TRANSITION = textwrap.dedent("""
-            将验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg
+            将ID为checkcodeImg的验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg
             运行C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下的OCR.py，得到读取的验证码
             输入验证码
-            点击登录按钮
+            点击id为zhLogin的登录按钮
             点击网上预约报账按钮
             点击申请报销单按钮
             点击已阅读并同意按钮
@@ -379,6 +380,46 @@ class WorkflowCore:
         """将路径中的具体索引标准化为[]，如 personnel[0].name -> personnel[].name"""
         import re
         return re.sub(r"\[\d+\]", "[]", path)
+
+    def _format_segments(self, segments: List[str]) -> str:
+        """将操作列表格式化为带序号的多行文本。"""
+        numbered_segments = []
+        for i, segment in enumerate(segments, 1):
+            seg = str(segment).strip()
+            if seg:
+                numbered_segments.append(f"{i}. {seg}")
+        return "\n".join(numbered_segments)
+
+    def _get_stage_flow_config(self, business_type: str) -> List[Dict[str, str]]:
+        """根据业务类型返回阶段配置。"""
+        default_flow = [
+            {"key": "login", "title": "登录阶段", "transition": self.LOGIN_TRANSITION},
+            {"key": "project", "title": "项目信息阶段", "transition": self.PROJECT_TRANSITION},
+            {"key": "expenses", "title": "科目信息阶段", "transition": self.EXPENSE_TRANSITION},
+            {"key": "personnel", "title": "转卡信息阶段", "transition": self.PERSONNEL_TRANSITION},
+            {"key": "appointment", "title": "预约阶段", "transition": self.APPOINTMENT_TRANSITION},
+        ]
+        travel_flow = [
+            {"key": "login", "title": "登录阶段", "transition": self.LOGIN_TRANSITION},
+            {"key": "project", "title": "项目信息阶段", "transition": self.PROJECT_TRANSITION},
+            {"key": "travelPerson", "title": "出差人员阶段", "transition": ""},
+            {"key": "travelExpenses", "title": "差旅费用阶段", "transition": self.TRAVEL_TRANSITION},
+            {"key": "personnel", "title": "转卡信息阶段", "transition": self.PERSONNEL_TRANSITION},
+            {"key": "appointment", "title": "预约阶段", "transition": self.APPOINTMENT_TRANSITION},
+        ]
+        labor_flow = [
+            {"key": "login", "title": "登录阶段", "transition": self.LOGIN_TRANSITION},
+            {"key": "project", "title": "项目信息阶段", "transition": self.PROJECT_TRANSITION},
+            {"key": "laborInfo", "title": "劳务信息阶段", "transition": self.LABOR_TRANSITION},
+            {"key": "laborPerson", "title": "劳务人员阶段", "transition": self.PERSONNEL_TRANSITION},
+            {"key": "appointment", "title": "预约阶段", "transition": self.APPOINTMENT_TRANSITION},
+        ]
+        flow_map = {
+            "报销业务": default_flow,
+            "业务出差旅费": travel_flow,
+            "酬金业务": labor_flow,
+        }
+        return flow_map.get(business_type, default_flow)
 
     def build_playwright_prompt_from_data(self, data: Dict[str, Any]) -> str:
         """根据提取的JSON数据与Excel映射，生成Playwright MCP提示词字符串。"""
@@ -902,6 +943,49 @@ class WorkflowCore:
                 stage_actions.append(f"{label}内容为{value}")
         return stage_actions
 
+    def build_stage_prompts_from_data(self, data: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+        """根据JSON生成按阶段划分的Playwright提示词。"""
+        mapping = self.load_field_type_mapping()
+        business_type = (data.get("businessType") or "").strip()
+        stage_flow = self._get_stage_flow_config(business_type)
+        if not stage_flow:
+            return {}
+
+        stage_prompts: Dict[str, Dict[str, str]] = {}
+        for idx, stage in enumerate(stage_flow):
+            stage_key = stage.get("key")
+            stage_lines: List[str] = []
+
+            if idx == 0:
+                stage_lines.append("请你调用Playwright MCP，执行以下命令，一次性执行完")
+                stage_lines.append("打开https://cwcx.uestc.edu.cn/WFManager/login.jsp")
+                if business_type:
+                    stage_lines.append(f"业务大类：{business_type}。以下是需要执行的页面操作：")
+
+            actions = self._generate_actions_for_stage(data, stage_key, mapping)
+            stage_lines.extend(actions)
+
+            if stage_key == "laborInfo":
+                stage_lines.extend(
+                    [line.strip() for line in self.LABORINFO_TO_LABORPERSON_TRANSITION.split('\n') if line.strip()]
+                )
+
+            transition_text = stage.get("transition") or ""
+            if transition_text:
+                transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
+                stage_lines.extend(transition_lines)
+
+            stage_lines = [line.strip() for line in stage_lines if line and line.strip()]
+            if not stage_lines:
+                continue
+
+            stage_prompts[stage_key] = {
+                "title": stage.get("title") or stage_key,
+                "prompt": self._format_segments(stage_lines)
+            }
+
+        return stage_prompts
+
     def build_playwright_prompt_from_input(self, user_input: str) -> Dict[str, Any]:
         """一体化：提取→读取映射→生成提示词。
 
@@ -1040,6 +1124,34 @@ def process_excel_to_mcp_direct(excel_path: str, sheet_name: str, serial) -> str
         import traceback
         traceback.print_exc()
         return ""
+
+
+def process_excel_to_stage_prompts(excel_path: str, sheet_name: str, serial) -> Dict[str, Any]:
+    """
+    从 Excel 生成按阶段划分的 MCP 提示词。
+    """
+    try:
+        from excel_to_nl import excel_to_json_direct
+
+        json_data = excel_to_json_direct(excel_path, sheet_name, serial)
+        if not json_data:
+            print(f"未找到序号 {serial} 的数据")
+            return {}
+
+        workflow = WorkflowCore()
+        full_prompt = workflow.build_playwright_prompt_from_data(json_data)
+        stage_prompts = workflow.build_stage_prompts_from_data(json_data)
+
+        return {
+            "full_prompt": full_prompt,
+            "stage_prompts": stage_prompts,
+            "business_type": json_data.get("businessType"),
+            "serial": str(serial),
+        }
+    except Exception as e:
+        print(f"生成阶段提示词时发生错误: {e}")
+        traceback.print_exc()
+        return {}
 
 
 def batch_process_excel_to_mcp_direct(excel_path: str, sheet_name: str) -> List[Dict[str, Any]]:

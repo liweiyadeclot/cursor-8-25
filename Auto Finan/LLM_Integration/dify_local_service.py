@@ -31,7 +31,11 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from workflow_core import process_excel_to_mcp_direct, batch_process_excel_to_mcp_direct
+    from workflow_core import (
+        process_excel_to_mcp_direct,
+        batch_process_excel_to_mcp_direct,
+        process_excel_to_stage_prompts,
+    )
 except ImportError as e:
     print(f"❌ 无法导入 workflow_core: {e}")
     sys.exit(1)
@@ -123,27 +127,44 @@ async def excel_to_prompt(request: ExcelToPromptRequest):
                 detail=f"Excel 文件不存在: {request.excel_path}"
             )
         
-        # 调用本地函数
-        mcp_prompt = process_excel_to_mcp_direct(
-            excel_path=request.excel_path,
-            sheet_name=request.sheet_name,
-            serial=request.serial
-        )
-        
-        if not mcp_prompt or not mcp_prompt.strip():
+        stage_error = None
+        result = {}
+        try:
+            result = process_excel_to_stage_prompts(
+                excel_path=request.excel_path,
+                sheet_name=request.sheet_name,
+                serial=request.serial
+            ) or {}
+        except Exception as e:
+            stage_error = str(e)
+
+        full_prompt = (result.get("full_prompt", "") if isinstance(result, dict) else "") or ""
+        stage_prompts = (result.get("stage_prompts", {}) if isinstance(result, dict) else {}) or {}
+
+        if not full_prompt:
+            full_prompt = process_excel_to_mcp_direct(
+                excel_path=request.excel_path,
+                sheet_name=request.sheet_name,
+                serial=request.serial
+            )
+
+        if not full_prompt or not full_prompt.strip():
             return JSONResponse(
                 status_code=400,
                 content={
                     "success": False,
-                    "error": f"未能生成序号 {request.serial} 的 MCP 提示词",
+                    "error": f"序号 {request.serial} 未生成有效的完整提示词",
                     "suggestion": "请检查 Excel 数据和序号是否正确"
                 }
             )
-        
+
         return {
             "success": True,
-            "mcp_prompt": mcp_prompt,
-            "prompt_length": len(mcp_prompt),
+            "business_type": result.get("business_type"),
+            "full_prompt": full_prompt,
+            "prompt_length": len(full_prompt),
+            "stage_prompts": stage_prompts,
+            "stage_error": stage_error,
             "excel_path": request.excel_path,
             "sheet_name": request.sheet_name,
             "serial": request.serial

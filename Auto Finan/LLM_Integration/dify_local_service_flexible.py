@@ -25,7 +25,11 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from workflow_core import process_excel_to_mcp_direct, batch_process_excel_to_mcp_direct
+    from workflow_core import (
+        process_excel_to_mcp_direct,
+        batch_process_excel_to_mcp_direct,
+        process_excel_to_stage_prompts,
+    )
 except ImportError as e:
     print(f"❌ 无法导入 workflow_core: {e}")
     sys.exit(1)
@@ -191,53 +195,63 @@ async def excel_to_prompt(request: Request):
                     }
                 )
         
-        # 调用本地函数
+        import traceback
+        stage_error = None
+        result: Dict[str, Any] = {}
         try:
-            mcp_prompt = process_excel_to_mcp_direct(
+            result = process_excel_to_stage_prompts(
                 excel_path=excel_path,
                 sheet_name=sheet_name,
-                serial=str(serial)  # 确保是字符串
-            )
+                serial=str(serial)
+            ) or {}
         except Exception as e:
-            import traceback
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "error": f"处理 Excel 文件时出错: {str(e)}",
-                    "error_type": type(e).__name__,
-                    "traceback": traceback.format_exc() if os.environ.get("DEBUG") else None,
-                    "received": {
-                        "excel_path": excel_path,
-                        "sheet_name": sheet_name,
-                        "serial": str(serial)
+            stage_error = str(e)
+            if os.environ.get("DEBUG"):
+                stage_error = f"{stage_error}\n{traceback.format_exc()}"
+
+        full_prompt = (result.get("full_prompt", "") if isinstance(result, dict) else "") or ""
+        stage_prompts = (result.get("stage_prompts", {}) if isinstance(result, dict) else {}) or {}
+
+        if not full_prompt:
+            try:
+                full_prompt = process_excel_to_mcp_direct(
+                    excel_path=excel_path,
+                    sheet_name=sheet_name,
+                    serial=str(serial)
+                )
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "error": f"生成提示词失败: {str(e)}",
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc() if os.environ.get("DEBUG") else None,
+                        "received": {
+                            "excel_path": excel_path,
+                            "sheet_name": sheet_name,
+                            "serial": str(serial)
+                        }
                     }
-                }
-            )
-        
-        if not mcp_prompt or not mcp_prompt.strip():
+                )
+
+        if not full_prompt or not full_prompt.strip():
             return JSONResponse(
                 status_code=400,
                 content={
                     "success": False,
-                    "error": f"未能生成序号 {serial} 的 MCP 提示词",
-                    "suggestion": "请检查 Excel 数据和序号是否正确",
-                    "received": {
-                        "excel_path": excel_path,
-                        "sheet_name": sheet_name,
-                        "serial": str(serial)
-                    },
-                    "debug": {
-                        "file_exists": os.path.exists(excel_path),
-                        "file_size": os.path.getsize(excel_path) if os.path.exists(excel_path) else 0
-                    }
+                    "error": f"序号 {serial} 未生成有效的完整提示词",
+                    "suggestion": "请检查 Excel 数据和序号是否正确"
                 }
             )
         
         return {
             "success": True,
-            "mcp_prompt": mcp_prompt,
-            "prompt_length": len(mcp_prompt),
+            "business_type": result.get("business_type"),
+            "full_prompt": full_prompt,
+            "prompt_length": len(full_prompt),
+            "stage_prompts": stage_prompts,
+            "stage_error": stage_error,
             "excel_path": excel_path,
             "sheet_name": sheet_name,
             "serial": str(serial)

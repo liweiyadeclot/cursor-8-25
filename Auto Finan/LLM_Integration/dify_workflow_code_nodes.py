@@ -33,7 +33,7 @@ def node_excel_to_prompt():
         sys.path.insert(0, workflow_dir)
     
     try:
-        from workflow_core import process_excel_to_mcp_direct
+        from workflow_core import process_excel_to_mcp_direct, process_excel_to_stage_prompts
     except ImportError as e:
         return {
             "success": False,
@@ -64,30 +64,44 @@ def node_excel_to_prompt():
         }
     
     try:
-        # 生成 MCP 提示词
-        mcp_prompt = process_excel_to_mcp_direct(
+        result = process_excel_to_stage_prompts(
             excel_path=excel_path,
             sheet_name=sheet_name,
             serial=serial
         )
-        
-        if not mcp_prompt or not mcp_prompt.strip():
+
+        if not result:
             return {
                 "success": False,
                 "error": "未能生成有效的 MCP 提示词",
                 "suggestion": "请检查 Excel 数据和序号是否正确"
             }
-        
-        # 返回结果
+
+        full_prompt = result.get("full_prompt") or process_excel_to_mcp_direct(
+            excel_path=excel_path,
+            sheet_name=sheet_name,
+            serial=serial
+        )
+
+        if not full_prompt:
+            return {
+                "success": False,
+                "error": "未能生成完整提示词",
+                "suggestion": "请检查 Excel 数据和序号是否正确"
+            }
+
         return {
             "success": True,
-            "mcp_prompt": mcp_prompt,
-            "prompt_length": len(mcp_prompt),
+            "mcp_prompt": full_prompt,
+            "full_prompt": full_prompt,
+            "prompt_length": len(full_prompt),
+            "stage_prompts": result.get("stage_prompts", {}),
+            "business_type": result.get("business_type"),
             "excel_path": excel_path,
             "sheet_name": sheet_name,
             "serial": serial
         }
-        
+
     except Exception as e:
         return {
             "success": False,
