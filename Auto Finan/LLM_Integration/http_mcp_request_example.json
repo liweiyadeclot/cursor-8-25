@@ -1,0 +1,123 @@
+{
+  "request_example": {
+    "description": "Playwright MCP HTTP 请求示例",
+    "method": "POST",
+    "url": "http://localhost:3030/mcp/execute",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "prompt": "1. 请你调用Playwright MCP，执行以下命令，一次性执行完\n2. 打开https://cwcx.uestc.edu.cn/WFManager/login.jsp\n3. 业务大类：报销业务。以下是需要执行的页面操作：\n4. 在用户名输入框中输入5130008\n5. 在密码输入框中输入Uestc418\n6. 将验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg\n7. 读取图片中的验证码信息\n8. 输入验证码\n9. 点击登录按钮\n10. 点击网上预约报账按钮\n11. 点击申请报销单按钮\n12. 点击已阅读并同意按钮\n13. 在报销项目号输入框中输入M112023ZHCG0006\n14. 在附件张数输入框中输入2\n15. 在支付方式下拉框中选择个人转卡\n16. 点击下一步按钮\n17. 向专利费输入框填写100\n18. 点击下一步按钮\n19. 在学工号输入框中输入5070016\n20. 银行卡号尾号内容为2818\n21. 在金额输入框中输入50\n22. 点击提交按钮\n23. 等待页面响应\n24. 在学工号输入框中输入202422090507\n25. 银行卡号尾号内容为5054\n26. 在金额输入框中输入50\n27. 点击下一步按钮\n28. 选择日期预约日期为2025-10-20\n29. 点击预约按钮\n30. 点击打印确认单按钮"
+    }
+  },
+  "response_success_example": {
+    "description": "成功响应示例",
+    "status": "success",
+    "message": "Playwright MCP 执行完成",
+    "execution_id": "exec_20250110_143025",
+    "logs": [
+      "已打开页面: https://cwcx.uestc.edu.cn/WFManager/login.jsp",
+      "已输入用户名: 5130008",
+      "已输入密码: ***",
+      "验证码已识别并输入",
+      "登录成功",
+      "已点击网上预约报账按钮",
+      "已点击申请报销单按钮",
+      "已点击已阅读并同意按钮",
+      "已在报销项目号输入框中输入: M112023ZHCG0006",
+      "已在附件张数输入框中输入: 2",
+      "已在支付方式下拉框中选择: 个人转卡",
+      "已点击下一步按钮",
+      "已向专利费输入框填写: 100",
+      "已点击下一步按钮",
+      "已在学工号输入框中输入: 5070016",
+      "银行卡号尾号已设置: 2818",
+      "已在金额输入框中输入: 50",
+      "已点击提交按钮",
+      "等待页面响应完成",
+      "已在学工号输入框中输入: 202422090507",
+      "银行卡号尾号已设置: 5054",
+      "已在金额输入框中输入: 50",
+      "已点击下一步按钮",
+      "已选择预约日期: 2025-10-20",
+      "已点击预约按钮",
+      "已点击打印确认单按钮"
+    ],
+    "screenshots": [
+      "screenshot_1.png",
+      "screenshot_2.png"
+    ],
+    "timestamp": "2025-01-10T14:30:25Z"
+  },
+  "response_error_example": {
+    "description": "错误响应示例",
+    "status": "error",
+    "error_code": "MCP_EXECUTION_FAILED",
+    "message": "执行失败：无法找到元素 '登录按钮'",
+    "error_details": {
+      "step": 9,
+      "action": "点击登录按钮",
+      "error": "Element not found: button[type='submit']",
+      "page_url": "https://cwcx.uestc.edu.cn/WFManager/login.jsp"
+    },
+    "timestamp": "2025-01-10T14:30:25Z"
+  },
+  "response_partial_example": {
+    "description": "部分成功响应示例",
+    "status": "partial",
+    "message": "部分步骤执行成功",
+    "completed_steps": 15,
+    "total_steps": 34,
+    "failed_at_step": 16,
+    "error": "无法找到元素 '下一步按钮'",
+    "logs": [
+      "已打开页面: https://cwcx.uestc.edu.cn/WFManager/login.jsp",
+      "已输入用户名: 5130008",
+      "已输入密码: ***",
+      "验证码已识别并输入",
+      "登录成功",
+      "已点击网上预约报账按钮",
+      "已点击申请报销单按钮",
+      "已点击已阅读并同意按钮",
+      "已在报销项目号输入框中输入: M112023ZHCG0006",
+      "已在附件张数输入框中输入: 2",
+      "已在支付方式下拉框中选择: 个人转卡",
+      "已点击下一步按钮",
+      "已向专利费输入框填写: 100",
+      "已点击下一步按钮",
+      "已在学工号输入框中输入: 5070016"
+    ],
+    "timestamp": "2025-01-10T14:30:25Z"
+  },
+  "dify_workflow_example": {
+    "description": "Dify 工作流中的使用示例",
+    "workflow_steps": [
+      {
+        "step": 1,
+        "node_type": "代码节点",
+        "description": "从 Excel 生成 MCP 提示词",
+        "code": "import requests\nfrom workflow_core import process_excel_to_mcp_direct\n\n# 从上游节点获取 Excel 数据\nexcel_path = {{#workflow.excel_path#}}\nsheet_name = {{#workflow.sheet_name#}}\nserial = {{#workflow.serial#}}\n\n# 生成 MCP 提示词\nmcp_prompt = process_excel_to_mcp_direct(excel_path, sheet_name, serial)\n\n# 返回给下游节点\nreturn {\"mcp_prompt\": mcp_prompt}"
+      },
+      {
+        "step": 2,
+        "node_type": "HTTP 请求节点",
+        "description": "调用 Playwright MCP",
+        "method": "POST",
+        "url": "http://localhost:3030/mcp/execute",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "prompt": "{{#workflow.mcp_prompt#}}"
+        }
+      },
+      {
+        "step": 3,
+        "node_type": "代码节点",
+        "description": "处理响应结果",
+        "code": "result = {{#workflow.http_response#}}\n\nif result.get('status') == 'success':\n    return {\"success\": True, \"message\": \"自动化执行成功\", \"logs\": result.get('logs', [])}\nelse:\n    return {\"success\": False, \"message\": result.get('message', '执行失败'), \"error\": result.get('error_details', {})}"
+      }
+    ]
+  }
+}
+

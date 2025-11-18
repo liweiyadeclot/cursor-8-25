@@ -75,6 +75,7 @@ class WorkflowCore:
             调用test_mouse_keyboard.py，执行一个python自动点击的脚本，脚本的第一个参数为保存路径，第二个参数为保存文件名，请你以当前页面中的信息，以报销单号-项目号-金额的格式，输入第二个参数
             等待刚刚运行的脚本运行完毕
             点击返回按钮
+            重命名当前读取的提示词文件，将未预约改成已预约
         """).strip()
         
         # 6. 差旅信息跳转操作说明
@@ -436,7 +437,7 @@ class WorkflowCore:
             if mark == "i":
                 parts.append(f"在{label}输入框中输入{value}")
             elif mark == "c":
-                parts.append(f"在{label}下拉框中选择{value}")
+                parts.append(f"在{label}下拉框中选择值为\"{value}\"")
             elif mark == "r":
                 parts.append(f"点击{label}radio button")
             elif mark == "d":
@@ -621,7 +622,7 @@ class WorkflowCore:
                         person_actions.append(action)
                         print(f"DEBUG: 添加动作: {action}")
                     elif mark == "c":
-                        action = f"在{label}下拉框中选择{value}"
+                        action = f"在{label}下拉框中选择值为\"{value}\""
                         person_actions.append(action)
                         print(f"DEBUG: 添加动作: {action}")
                     elif mark == "r":
@@ -687,7 +688,7 @@ class WorkflowCore:
                         expense_actions.append(action)
                         print(f"DEBUG: 添加动作: {action}")
                     elif mark == "c":
-                        action = f"在{label}下拉框中选择{value}"
+                        action = f"在{label}下拉框中选择值为\"{value}\""
                         expense_actions.append(action)
                         print(f"DEBUG: 添加动作: {action}")
                     elif mark == "r":
@@ -741,7 +742,7 @@ class WorkflowCore:
                 if mark == "i":
                     labor_actions.append(f"在{label}输入框中输入{value}")
                 elif mark == "c":
-                    labor_actions.append(f"在{label}下拉框中选择{value}")
+                    labor_actions.append(f"在{label}下拉框中选择值为\"{value}\"")
                 elif mark == "r":
                     labor_actions.append(f"点击{label}radio button")
                 elif mark == "d":
@@ -795,7 +796,7 @@ class WorkflowCore:
                     if mark == "i":
                         labor_actions.append(f"在{label}输入框中输入{value}")
                     elif mark == "c":
-                        labor_actions.append(f"在{label}下拉框中选择{value}")
+                        labor_actions.append(f"在{label}下拉框中选择值为\"{value}\"")
                     elif mark == "r":
                         labor_actions.append(f"点击{label}radio button")
                     elif mark == "d":
@@ -842,7 +843,7 @@ class WorkflowCore:
                     if mark == "i":
                         person_actions.append(f"在{label}输入框中输入{value}")
                     elif mark == "c":
-                        person_actions.append(f"在{label}下拉框中选择{value}")
+                        person_actions.append(f"在{label}下拉框中选择值为\"{value}\"")
                     elif mark == "r":
                         person_actions.append(f"点击{label}radio button")
                     elif mark == "d":
@@ -892,7 +893,7 @@ class WorkflowCore:
             if mark == "i":
                 stage_actions.append(f"在{label}输入框中输入{value}")
             elif mark == "c":
-                stage_actions.append(f"在{label}下拉框中选择{value}")
+                stage_actions.append(f"在{label}下拉框中选择值为\"{value}\"")
             elif mark == "r":
                 stage_actions.append(f"点击{label}radio button")
             elif mark == "d":
@@ -1044,6 +1045,7 @@ def process_excel_to_mcp_direct(excel_path: str, sheet_name: str, serial) -> str
 def batch_process_excel_to_mcp_direct(excel_path: str, sheet_name: str) -> List[Dict[str, Any]]:
     """
     批量处理Excel所有序号，直接生成MCP提示词（跳过LLM）
+    只处理"!已生成MCP提示词"列为空的序号
     
     Args:
         excel_path: Excel文件路径
@@ -1061,18 +1063,54 @@ def batch_process_excel_to_mcp_direct(excel_path: str, sheet_name: str) -> List[
         wb = load_workbook(excel_path, data_only=True)
         ws = wb[sheet_name] if sheet_name else wb.active
         
-        # 获取所有唯一序号
-        serials = set()
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if row and row[0]:  # 假设第一列是序号
-                serials.add(str(row[0]))
+        # 查找"!已生成MCP提示词"列的索引
+        headers = {}
+        for idx, cell in enumerate(ws[1], 1):
+            if cell.value:
+                headers[str(cell.value).strip()] = idx
+        
+        mcp_col_idx = headers.get("!已生成MCP提示词")
+        serial_col_idx = headers.get("序号", 1)  # 默认第1列是序号
+        
+        # 获取所有未处理的序号（"!已生成MCP提示词"列为空）
+        serials_to_process = []
+        skipped_serials = []
+        
+        for row in ws.iter_rows(min_row=2):
+            serial_cell = row[serial_col_idx - 1]  # 列索引转为0-based
+            if serial_cell.value:
+                serial_val = str(serial_cell.value).strip()
+                
+                # 检查"!已生成MCP提示词"列
+                if mcp_col_idx:
+                    mcp_cell = row[mcp_col_idx - 1]
+                    if mcp_cell.value and str(mcp_cell.value).strip():
+                        # 已有值，跳过
+                        skipped_serials.append(serial_val)
+                        continue
+                
+                # 未处理，添加到待处理列表
+                serials_to_process.append(serial_val)
+        
+        # 去重并排序
+        serials_to_process = sorted(set(serials_to_process), key=lambda x: int(x) if x.isdigit() else 0)
+        
+        if skipped_serials:
+            print(f"ℹ️  跳过已生成的序号: {', '.join(sorted(set(skipped_serials), key=lambda x: int(x) if x.isdigit() else 0))}")
+        
+        if not serials_to_process:
+            print("ℹ️  所有序号都已生成MCP提示词，无需处理")
+            return []
+        
+        print(f"ℹ️  待处理序号: {', '.join(serials_to_process)}")
+        print()
         
         # 初始化工作流程控制器
         workflow = WorkflowCore()
         
         # 批量处理
         results = []
-        for serial in sorted(serials, key=lambda x: int(x) if x.isdigit() else 0):
+        for serial in serials_to_process:
             print(f"=== 处理序号 {serial} ===")
             
             # 直接从Excel转JSON
@@ -1100,3 +1138,68 @@ def batch_process_excel_to_mcp_direct(excel_path: str, sheet_name: str) -> List[
         import traceback
         traceback.print_exc()
         return []
+
+
+def mark_mcp_file_as_completed(excel_path: str, sheet_name: str, old_filename: str) -> str:
+    """
+    将MCP提示词文件标记为已完成（未预约→已预约），并更新Excel
+    
+    Args:
+        excel_path: Excel文件路径
+        sheet_name: 工作表名称
+        old_filename: 原文件名（未预约-xxx.txt）
+        
+    Returns:
+        新文件名（已预约-xxx.txt）
+    """
+    try:
+        from openpyxl import load_workbook
+        import os
+        
+        # 构建完整路径
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        output_dir = os.path.join(script_dir, "mcp_prompts")
+        old_filepath = os.path.join(output_dir, old_filename)
+        
+        # 生成新文件名
+        new_filename = old_filename.replace("未预约-", "已预约-")
+        new_filepath = os.path.join(output_dir, new_filename)
+        
+        # 重命名文件
+        if os.path.exists(old_filepath):
+            os.rename(old_filepath, new_filepath)
+            print(f"✅ 文件已重命名: {old_filename} → {new_filename}")
+        else:
+            print(f"⚠️  文件不存在: {old_filename}")
+            return old_filename
+        
+        # 更新Excel中的记录
+        wb = load_workbook(excel_path)
+        ws = wb[sheet_name]
+        
+        # 查找"!已生成MCP提示词"列
+        headers = {}
+        for idx, cell in enumerate(ws[1], 1):
+            if cell.value:
+                headers[str(cell.value).strip()] = idx
+        
+        mcp_col_idx = headers.get("!已生成MCP提示词")
+        
+        if mcp_col_idx:
+            # 查找包含旧文件名的单元格并更新
+            for row_idx in range(2, ws.max_row + 1):
+                mcp_cell = ws.cell(row=row_idx, column=mcp_col_idx)
+                if mcp_cell.value and old_filename in str(mcp_cell.value):
+                    mcp_cell.value = new_filename
+            
+            wb.save(excel_path)
+            print(f"✅ Excel文件已更新")
+        
+        wb.close()
+        return new_filename
+        
+    except Exception as e:
+        print(f"⚠️  标记完成时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return old_filename

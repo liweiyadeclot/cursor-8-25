@@ -1,0 +1,6 @@
+{
+  "excel_path": "{{#workflow.excel_path#}}",
+  "sheet_name": "{{#workflow.sheet_name#}}",
+  "serial": "{{#workflow.serial#}}"
+}
+

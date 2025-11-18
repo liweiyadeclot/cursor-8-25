@@ -126,6 +126,7 @@ def test_labor_sheet():
 if __name__ == "__main__":
     import os
     import time
+    from openpyxl import load_workbook
     
     # ===== 配置区域：可修改Excel文件路径 =====
     EXCEL_FILE_PATH = r"C:\Users\FH\source\repos\Auto Finan\Auto Finan\420财务050823.xlsx"
@@ -224,6 +225,55 @@ if __name__ == "__main__":
         print(f"=== 所有序号处理完成 ===")
         print(f"共保存 {len(saved_files)} 个MCP提示词文件")
         print(f"输出目录: {OUTPUT_DIR}")
+        print(f"{'='*60}")
+        
+        # 更新Excel文件，将文件名写入"!已生成MCP提示词"列
+        print(f"\n正在更新Excel文件...")
+        try:
+            wb = load_workbook(EXCEL_FILE_PATH)
+            ws = wb[sheet_name]
+            
+            # 查找"!已生成MCP提示词"列的索引
+            headers = {}
+            for idx, cell in enumerate(ws[1], 1):
+                if cell.value:
+                    headers[str(cell.value).strip()] = idx
+            
+            mcp_col_idx = headers.get("!已生成MCP提示词")
+            serial_col_idx = headers.get("序号", 1)  # 默认第1列是序号
+            
+            if mcp_col_idx:
+                # 为每个序号找到对应的行并写入文件名
+                serial_to_filename = {}
+                for i, result in enumerate(results):
+                    # 从保存的文件路径提取文件名
+                    filename = os.path.basename(saved_files[i])
+                    serial_to_filename[str(result['serial'])] = filename
+                
+                # 遍历所有数据行
+                for row_idx in range(2, ws.max_row + 1):
+                    serial_cell = ws.cell(row=row_idx, column=serial_col_idx)
+                    if serial_cell.value:
+                        serial_val = str(serial_cell.value).strip()
+                        if serial_val in serial_to_filename:
+                            # 写入文件名
+                            mcp_cell = ws.cell(row=row_idx, column=mcp_col_idx)
+                            mcp_cell.value = serial_to_filename[serial_val]
+                
+                # 保存Excel文件
+                wb.save(EXCEL_FILE_PATH)
+                print(f"✅ Excel文件已更新：已将文件名写入已生成MCP提示词列")
+            else:
+                print(f"⚠️  未找到已生成MCP提示词列，跳过Excel更新")
+            
+            wb.close()
+            
+        except Exception as e:
+            print(f"⚠️  更新Excel文件时发生错误: {e}")
+            print("MCP提示词文件已保存，但Excel标记列未更新")
+        
+        print(f"\n{'='*60}")
+        print(f"=== 程序执行完成 ===")
         print(f"{'='*60}")
         
     except Exception as e:
