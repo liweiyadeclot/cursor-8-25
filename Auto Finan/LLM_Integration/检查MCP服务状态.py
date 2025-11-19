@@ -1,17 +1,81 @@
 """
 检查 Playwright MCP HTTP 网关服务状态
+支持检查本地和远程服务
 """
 
 import requests
 import sys
+import socket
+import subprocess
+import os
 
-def check_service():
+def check_port_open(host, port, timeout=3):
+    """检查端口是否开放"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+def get_local_ip():
+    """获取本机 IP 地址"""
+    try:
+        # 连接到一个远程地址来获取本机 IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+def check_service(base_url=None, host=None, port=3030):
     """检查服务状态"""
-    base_url = "http://localhost:3030"
+    if base_url is None:
+        if host is None:
+            host = "localhost"
+        base_url = f"http://{host}:{port}"
+    
+    # 解析 host
+    if host is None:
+        if "://" in base_url:
+            host = base_url.split("://")[1].split(":")[0].split("/")[0]
+        else:
+            host = "localhost"
     
     print("=" * 60)
     print("检查 Playwright MCP 服务状态")
     print("=" * 60)
+    print(f"目标地址: {base_url}")
+    print(f"主机: {host}, 端口: {port}")
+    print()
+    
+    # 0. 检查端口是否开放
+    print("0. 检查端口是否开放...")
+    if check_port_open(host, port):
+        print(f"   ✅ 端口 {port} 已开放")
+    else:
+        print(f"   ❌ 端口 {port} 未开放或无法连接")
+        print(f"   💡 可能的原因：")
+        print(f"      1. 服务未启动")
+        print(f"      2. 防火墙阻止了连接")
+        print(f"      3. 服务监听在 localhost 而不是 0.0.0.0")
+        if host != "localhost" and host != "127.0.0.1":
+            print(f"      4. 远程主机 {host} 不可达")
+        print()
+        print(f"   💡 解决方案：")
+        print(f"      1. 确保服务正在运行: start_mcp_gateway.bat")
+        print(f"      2. 检查服务是否监听在 0.0.0.0:3030（而不是 localhost）")
+        print(f"      3. 检查 Windows 防火墙设置")
+        if host != "localhost" and host != "127.0.0.1":
+            local_ip = get_local_ip()
+            print(f"      4. 如果从远程访问，确保服务监听在 0.0.0.0")
+            print(f"         当前本机 IP: {local_ip}")
+            print(f"         如果 {host} 不是本机，请检查网络连接")
+        return False
     print()
     
     # 1. 检查根路径
@@ -100,6 +164,19 @@ def check_service():
     return True
 
 if __name__ == "__main__":
-    success = check_service()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="检查 Playwright MCP HTTP 网关服务状态")
+    parser.add_argument("--host", type=str, default=None, help="服务主机地址（默认: localhost）")
+    parser.add_argument("--port", type=int, default=3030, help="服务端口（默认: 3030）")
+    parser.add_argument("--url", type=str, default=None, help="完整服务 URL（例如: http://192.168.137.133:3030）")
+    
+    args = parser.parse_args()
+    
+    if args.url:
+        success = check_service(base_url=args.url)
+    else:
+        success = check_service(host=args.host, port=args.port)
+    
     sys.exit(0 if success else 1)
 

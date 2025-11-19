@@ -44,16 +44,24 @@ class WorkflowCore:
         """初始化各阶段跳转操作说明"""
         
         # 1. 登录阶段跳转操作说明
+        # self.LOGIN_TRANSITION = textwrap.dedent("""
+        #     将名称为“附加码”的验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg
+        #     运行C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下的OCR.py，得到读取的验证码
+        #     输入验证码
+        #     点击id为zhLogin的登录按钮
+        #     点击网上预约报账按钮
+        #     点击申请报销单按钮
+        #     点击已阅读并同意按钮
+        # """).strip()
         self.LOGIN_TRANSITION = textwrap.dedent("""
-            将ID为checkcodeImg的验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg
-            运行C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下的OCR.py，得到读取的验证码
-            输入验证码
-            点击id为zhLogin的登录按钮
-            点击网上预约报账按钮
-            点击申请报销单按钮
-            点击已阅读并同意按钮
-        """).strip()
-        
+                   等待 20 秒
+                   在上一步的等待结束后，点击id为zhLogin的登录按钮
+                   等待网上预约报账按钮出现后，点击
+                   等待 3 秒
+                   等待申请报销单按钮出现后，点击申请报销单按钮
+                   等待 3 秒
+                   等待已阅读并同意按钮出现后，点击已阅读并同意按钮
+               """).strip()
         # 2. 项目信息阶段跳转操作说明
         self.PROJECT_TRANSITION = textwrap.dedent("""
             点击下一步按钮
@@ -521,6 +529,12 @@ class WorkflowCore:
                 # 将跳转文本按行分割，每行单独作为一个segment
                 transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
                 segments.extend(transition_lines)
+                # 在登录阶段跳转操作之后，添加业务大类的 radio button 点击命令
+                if stage_key == "login":
+                    business_type = data.get("businessType", "").strip()
+                    if business_type:
+                        # 添加点击业务大类 radio button 的命令
+                        segments.append(f"点击{business_type}radio button")
         
         # 为每行添加序号
         numbered_segments = []
@@ -558,6 +572,12 @@ class WorkflowCore:
                 # 将跳转文本按行分割，每行单独作为一个segment
                 transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
                 segments.extend(transition_lines)
+                # 在登录阶段跳转操作之后，添加业务大类的 radio button 点击命令
+                if stage_key == "login":
+                    business_type = data.get("businessType", "").strip()
+                    if business_type:
+                        # 添加点击业务大类 radio button 的命令
+                        segments.append(f"点击{business_type}radio button")
         
         # 为每行添加序号
         numbered_segments = []
@@ -594,6 +614,12 @@ class WorkflowCore:
                 # 将跳转文本按行分割，每行单独作为一个segment
                 transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
                 segments.extend(transition_lines)
+                # 在登录阶段跳转操作之后，添加业务大类的 radio button 点击命令
+                if stage_key == "login":
+                    business_type = data.get("businessType", "").strip()
+                    if business_type:
+                        # 添加点击业务大类 radio button 的命令
+                        segments.append(f"点击{business_type}radio button")
         
         # 为每行添加序号
         numbered_segments = []
@@ -925,8 +951,53 @@ class WorkflowCore:
                 continue
 
             meta = mapping.get(norm_path)
+            
+            # 如果映射表中没有该字段，尝试使用默认映射（针对常见字段）
             if not meta:
-                continue
+                # 常见字段的默认映射（确保即使Excel映射表中没有，也能生成命令）
+                default_mappings = {
+                    # project 阶段字段
+                    "project.remarks": {"type": "i", "label": "备注"},
+                    "project.special": {"type": "i", "label": "特殊事项说明"},
+                    "project.attachmentCount": {"type": "i", "label": "附件张数"},
+                    "project.paymentMethod": {"type": "c", "label": "支付方式"},
+                    "project.projectNumber": {"type": "i", "label": "报销项目号"},
+                    # travelPerson 阶段字段
+                    "travelPerson[].ID": {"type": "i", "label": "出差人"},
+                    "travelPerson[].name": {"type": "i", "label": "姓名"},
+                    "travelPerson[].personType": {"type": "c", "label": "人员类型"},
+                    "travelPerson[].workUnit": {"type": "i", "label": "工作单位"},
+                    "travelPerson[].title": {"type": "c", "label": "职称"},
+                    # travelExpenses 阶段字段
+                    "travelExpenses[].province": {"type": "c", "label": "省份"},
+                    "travelExpenses[].startTime": {"type": "d", "label": "起始时间"},
+                    "travelExpenses[].endTime": {"type": "d", "label": "结束时间"},
+                    "travelExpenses[].otherTransport": {"type": "i", "label": "其他交通费"},
+                    "travelExpenses[].mealArranged": {"type": "c", "label": "是否安排伙食"},
+                    "travelExpenses[].transportArranged": {"type": "c", "label": "是否安排交通"},
+                    # personnel 阶段字段
+                    "personnel[].ID": {"type": "i", "label": "学工号"},
+                    "personnel[].bankCard": {"type": "empty", "label": "银行卡号尾号"},
+                    "personnel[].amount": {"type": "i", "label": "金额"},
+                    # appointment 阶段字段
+                    "appointment.date": {"type": "d", "label": "预约日期"},
+                    "appointment.campus": {"type": "i", "label": "校区"},
+                }
+                meta = default_mappings.get(norm_path)
+                if not meta:
+                    # 如果不在默认映射中，尝试根据字段名推断类型
+                    # 如果路径包含常见关键词，提供默认处理
+                    if "备注" in norm_path or "remark" in norm_path.lower():
+                        meta = {"type": "i", "label": "备注"}
+                    elif "日期" in norm_path or "date" in norm_path.lower() or "time" in norm_path.lower():
+                        meta = {"type": "d", "label": norm_path.split(".")[-1]}
+                    elif "类型" in norm_path or "type" in norm_path.lower() or "方式" in norm_path:
+                        meta = {"type": "c", "label": norm_path.split(".")[-1]}
+                    else:
+                        # 默认作为输入框
+                        field_name = norm_path.split(".")[-1].split("[")[0]
+                        meta = {"type": "i", "label": field_name}
+            
             mark = (meta.get("type") or "").lower().strip()
             label = meta.get("label") or norm_path
             if mark == "":
@@ -974,6 +1045,9 @@ class WorkflowCore:
             if transition_text:
                 transition_lines = [line.strip() for line in transition_text.split('\n') if line.strip()]
                 stage_lines.extend(transition_lines)
+                # 在登录阶段跳转操作之后，添加业务大类的 radio button 点击命令
+                if stage_key == "login" and business_type:
+                    stage_lines.append(f"点击{business_type}radio button")
 
             stage_lines = [line.strip() for line in stage_lines if line and line.strip()]
             if not stage_lines:
