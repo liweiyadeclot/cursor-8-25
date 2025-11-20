@@ -1,0 +1,52 @@
+{
+  "name": "报销业务自动化工作流",
+  "description": "从Excel读取数据，生成MCP提示词并执行",
+  "variables": {
+    "excel_path": "C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\420财务050823.xlsx",
+    "sheet_name": "3-报销",
+    "serial": "1",
+    "mcp_endpoint": "http://localhost:3030/mcp/execute"
+  },
+  "steps": [
+    {
+      "type": "log",
+      "message": "开始处理报销业务，序号: ${serial}"
+    },
+    {
+      "type": "script",
+      "script": "excel_to_nl.py",
+      "description": "从Excel生成自然语言描述"
+    },
+    {
+      "type": "wait",
+      "seconds": 2
+    },
+    {
+      "type": "mcp",
+      "name": "执行报销流程",
+      "prompt": "1. 请你调用Playwright MCP，执行以下命令，一次性执行完\n2. 打开https://cwcx.uestc.edu.cn/WFManager/login.jsp\n3. 业务大类：报销业务。以下是需要执行的页面操作：\n4. 在用户名输入框中输入5130008\n5. 在密码输入框中输入Uestc418\n6. 等待 20 秒\n7. 点击id为zhLogin的登录按钮\n8. 等待网上预约报账按钮出现后，点击\n9. 等待 3 秒\n10. 等待申请报销单按钮出现后，点击申请报销单按钮\n11. 等待 3 秒\n12. 等待已阅读并同意按钮出现后，点击已阅读并同意按钮\n13. 在报销项目号输入框中输入M112023ZHCG0006\n14. 在附件张数输入框中输入2\n15. 在支付方式下拉框中选择个人转卡\n16. 点击下一步按钮",
+      "timeout": 300,
+      "browser": "chrome",
+      "headless": false,
+      "save_result_to": "login_result"
+    },
+    {
+      "type": "condition",
+      "condition": "${login_result.status} == 'success'",
+      "if_true": [
+        {
+          "type": "log",
+          "message": "登录成功，继续后续步骤"
+        }
+      ],
+      "if_false": [
+        {
+          "type": "log",
+          "message": "登录失败，停止执行",
+          "level": "ERROR"
+        }
+      ]
+    }
+  ]
+}
+

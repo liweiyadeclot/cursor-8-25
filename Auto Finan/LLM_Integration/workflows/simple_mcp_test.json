@@ -1,0 +1,26 @@
+{
+  "name": "简单MCP测试工作流",
+  "description": "测试MCP连接和执行",
+  "variables": {
+    "mcp_endpoint": "http://localhost:3030/mcp/execute"
+  },
+  "steps": [
+    {
+      "type": "log",
+      "message": "开始测试MCP连接"
+    },
+    {
+      "type": "mcp",
+      "name": "测试打开页面",
+      "prompt": "1. 打开https://www.baidu.com\n2. 等待 3 秒",
+      "timeout": 30,
+      "browser": "chrome",
+      "headless": false
+    },
+    {
+      "type": "log",
+      "message": "MCP测试完成"
+    }
+  ]
+}
+

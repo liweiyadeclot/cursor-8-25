@@ -649,12 +649,12 @@ class WorkflowCore:
         # 特殊处理：travelPerson阶段的多个出差人员
         elif stage_key == "travelPerson" and isinstance(data.get("travelPerson"), list):
             travel_person_list = data.get("travelPerson") or []
-            print(f"DEBUG: 处理travelPerson阶段，共{len(travel_person_list)}个出差人员")
             for person_idx, travel_person in enumerate(travel_person_list):
                 if not isinstance(travel_person, dict):
                     continue
                 
-                print(f"DEBUG: 处理第{person_idx}个出差人员: {travel_person}")
+                # 出差人员序号（从1开始）
+                person_number = person_idx + 1
                 
                 # 生成该出差人员的所有字段动作
                 person_actions = []
@@ -666,61 +666,60 @@ class WorkflowCore:
                     full_path = f"travelPerson[{person_idx}].{path}" if path != "travelPerson" else f"travelPerson[{person_idx}]"
                     norm_path = self._normalize_array_path(full_path)
                     
-                    print(f"DEBUG: 字段路径: {path} -> {full_path} -> {norm_path}, 值: {value}")
-                    
+                    # 尝试从映射表获取，如果没有则使用默认映射
                     meta = mapping.get(norm_path)
-                    print(f"DEBUG: 映射信息: {meta}")
-                    
                     if not meta:
-                        print(f"DEBUG: 未找到映射，跳过字段: {norm_path}")
-                        continue
+                        # 使用默认映射
+                        default_mappings = {
+                            "travelPerson[].ID": {"type": "i", "label": "出差人"},
+                            "travelPerson[].name": {"type": "i", "label": "姓名"},
+                            "travelPerson[].personType": {"type": "c", "label": "人员类型"},
+                            "travelPerson[].workUnit": {"type": "i", "label": "工作单位"},
+                            "travelPerson[].title": {"type": "c", "label": "职称"},
+                        }
+                        meta = default_mappings.get(norm_path)
+                        if not meta:
+                            continue
                     
                     mark = (meta.get("type") or "").lower().strip()
-                    label = meta.get("label") or norm_path
+                    base_label = meta.get("label") or norm_path
                     
-                    print(f"DEBUG: 标记: {mark}, 标签: {label}")
+                    # 为标签添加序号（出差人1、出差人2等）
+                    label = f"{base_label}{person_number}"
                     
                     if mark == "":
-                        print(f"DEBUG: 标记为空，跳过字段: {norm_path}")
                         continue
                     
                     if mark == "i":
                         action = f"在{label}输入框中输入{value}"
                         person_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "c":
                         action = f"在{label}下拉框中选择值为\"{value}\""
                         person_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "r":
                         action = f"点击{label}radio button"
                         person_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "d":
                         action = f"选择日期{label}为{value}"
                         person_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "empty":
                         action = f"{label}内容为{value}"
                         person_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                 
                 # 添加该出差人员的动作
                 stage_actions.extend(person_actions)
-                print(f"DEBUG: 当前出差人员动作数: {len(person_actions)}")
             
-            print(f"DEBUG: travelPerson阶段总动作数: {len(stage_actions)}")
             return stage_actions
         
         # 特殊处理：travelExpenses阶段的费用信息
         elif stage_key == "travelExpenses" and isinstance(data.get("travelExpenses"), list):
             travel_expenses_list = data.get("travelExpenses") or []
-            print(f"DEBUG: 处理travelExpenses阶段，共{len(travel_expenses_list)}个费用项目")
             for expense_idx, travel_expense in enumerate(travel_expenses_list):
                 if not isinstance(travel_expense, dict):
                     continue
                 
-                print(f"DEBUG: 处理第{expense_idx}个费用项目: {travel_expense}")
+                # 费用项目序号（从1开始）
+                expense_number = expense_idx + 1
                 
                 # 生成该费用项目的所有字段动作
                 expense_actions = []
@@ -732,50 +731,54 @@ class WorkflowCore:
                     full_path = f"travelExpenses[{expense_idx}].{path}" if path != "travelExpenses" else f"travelExpenses[{expense_idx}]"
                     norm_path = self._normalize_array_path(full_path)
                     
-                    print(f"DEBUG: 字段路径: {path} -> {full_path} -> {norm_path}, 值: {value}")
-                    
+                    # 尝试从映射表获取，如果没有则使用默认映射
                     meta = mapping.get(norm_path)
-                    print(f"DEBUG: 映射信息: {meta}")
-                    
                     if not meta:
-                        print(f"DEBUG: 未找到映射，跳过字段: {norm_path}")
-                        continue
+                        # 使用默认映射
+                        default_mappings = {
+                            "travelExpenses[].province": {"type": "c", "label": "省份"},
+                            "travelExpenses[].startTime": {"type": "d", "label": "起"},
+                            "travelExpenses[].endTime": {"type": "d", "label": "迄"},
+                            "travelExpenses[].otherTransport": {"type": "i", "label": "其他交通费"},
+                            "travelExpenses[].mealArranged": {"type": "c", "label": "是否安排伙食"},
+                            "travelExpenses[].transportArranged": {"type": "c", "label": "是否安排交通"},
+                        }
+                        meta = default_mappings.get(norm_path)
+                        if not meta:
+                            continue
                     
                     mark = (meta.get("type") or "").lower().strip()
-                    label = meta.get("label") or norm_path
+                    base_label = meta.get("label") or norm_path
                     
-                    print(f"DEBUG: 标记: {mark}, 标签: {label}")
+                    # 为标签添加序号（省份1、起始时间1等，但日期字段通常不需要序号）
+                    if mark == "d":
+                        # 日期字段保持原样，不添加序号
+                        label = base_label
+                    else:
+                        label = f"{base_label}{expense_number}"
                     
                     if mark == "":
-                        print(f"DEBUG: 标记为空，跳过字段: {norm_path}")
                         continue
                     
                     if mark == "i":
                         action = f"在{label}输入框中输入{value}"
                         expense_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "c":
                         action = f"在{label}下拉框中选择值为\"{value}\""
                         expense_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "r":
                         action = f"点击{label}radio button"
                         expense_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "d":
                         action = f"选择日期{label}为{value}"
                         expense_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                     elif mark == "empty":
                         action = f"{label}内容为{value}"
                         expense_actions.append(action)
-                        print(f"DEBUG: 添加动作: {action}")
                 
                 # 添加该费用项目的动作
                 stage_actions.extend(expense_actions)
-                print(f"DEBUG: 当前费用项目动作数: {len(expense_actions)}")
             
-            print(f"DEBUG: travelExpenses阶段总动作数: {len(stage_actions)}")
             return stage_actions
         
         # 特殊处理：laborInfo阶段的劳务信息（单对象）

@@ -1,0 +1,103 @@
+{
+  "name": "集成报销工作流",
+  "description": "结合 workflow_core 和 MCP 的完整报销流程",
+  "variables": {
+    "excel_path": "C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\420财务050823.xlsx",
+    "sheet_name": "3-报销",
+    "serial": "1",
+    "username": "5130008",
+    "password": "Uestc418",
+    "mcp_endpoint": "http://localhost:3030/mcp/execute"
+  },
+  "steps": [
+    {
+      "type": "log",
+      "message": "开始处理报销业务 - 序号: ${serial}"
+    },
+    {
+      "type": "mcp",
+      "name": "登录阶段",
+      "prompt": "1. 请你调用Playwright MCP，执行以下命令，一次性执行完\n2. 打开https://cwcx.uestc.edu.cn/WFManager/login.jsp\n3. 业务大类：报销业务。以下是需要执行的页面操作：\n4. 在用户名输入框中输入${username}\n5. 在密码输入框中输入${password}\n6. 将验证码图片保存至C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\LLM_Integration目录下，命名为example.jpg\n7. 等待 20 秒\n8. 点击id为zhLogin的登录按钮",
+      "timeout": 300,
+      "browser": "chrome",
+      "headless": false,
+      "save_result_to": "login_result"
+    },
+    {
+      "type": "condition",
+      "condition": "${login_result.status} in ['success', 'partial']",
+      "if_true": [
+        {
+          "type": "log",
+          "message": "✅ 登录成功，继续后续步骤"
+        },
+        {
+          "type": "mcp",
+          "name": "进入报销申请",
+          "prompt": "1. 等待网上预约报账按钮出现后，点击\n2. 等待 3 秒\n3. 等待申请报销单按钮出现后，点击申请报销单按钮\n4. 等待 3 秒\n5. 等待已阅读并同意按钮出现后，点击已阅读并同意按钮",
+          "timeout": 300,
+          "browser": "chrome",
+          "headless": false,
+          "session_id": "${last_session_id}",
+          "save_result_to": "nav_result"
+        },
+        {
+          "type": "mcp",
+          "name": "填写基本信息",
+          "prompt": "1. 在报销项目号输入框中输入M112023ZHCG0006\n2. 在附件张数输入框中输入2\n3. 在支付方式下拉框中选择个人转卡\n4. 点击下一步按钮",
+          "timeout": 300,
+          "browser": "chrome",
+          "headless": false,
+          "session_id": "${last_session_id}",
+          "save_result_to": "project_result"
+        },
+        {
+          "type": "mcp",
+          "name": "填写费用信息",
+          "prompt": "1. 向电费输入框填写100\n2. 点击下一步按钮",
+          "timeout": 300,
+          "browser": "chrome",
+          "headless": false,
+          "session_id": "${last_session_id}",
+          "save_result_to": "expense_result"
+        },
+        {
+          "type": "mcp",
+          "name": "填写人员信息",
+          "prompt": "1. 在学工号输入框中输入5070016\n2. 银行卡号尾号内容为2818\n3. 在金额输入框中输入50\n4. 点击提交按钮\n5. 等待页面响应\n6. 在学工号输入框中输入202422090507\n7. 银行卡号尾号内容为5054\n8. 在金额输入框中输入50\n9. 点击下一步按钮",
+          "timeout": 300,
+          "browser": "chrome",
+          "headless": false,
+          "session_id": "${last_session_id}",
+          "save_result_to": "personnel_result"
+        },
+        {
+          "type": "mcp",
+          "name": "预约和打印",
+          "prompt": "1. 选择日期预约日期为2025-10-20\n2. 点击预约按钮\n3. 点击打印确认单按钮\n4. 调用test_mouse_keyboard.py，执行一个python自动点击的脚本，脚本的第一个参数为保存路径，第二个参数为保存文件名，请你以当前页面中的信息，以报销单号-项目号-金额的格式，输入第二个参数\n5. 等待刚刚运行的脚本运行完毕\n6. 点击返回按钮",
+          "timeout": 300,
+          "browser": "chrome",
+          "headless": false,
+          "session_id": "${last_session_id}",
+          "save_result_to": "appointment_result"
+        },
+        {
+          "type": "log",
+          "message": "✅ 报销流程完成"
+        }
+      ],
+      "if_false": [
+        {
+          "type": "log",
+          "message": "❌ 登录失败，停止执行",
+          "level": "ERROR"
+        }
+      ]
+    },
+    {
+      "type": "log",
+      "message": "工作流执行完成"
+    }
+  ]
+}
+

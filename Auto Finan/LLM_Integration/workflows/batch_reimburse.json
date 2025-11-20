@@ -1,0 +1,50 @@
+{
+  "name": "批量报销处理工作流",
+  "description": "批量处理多个序号的报销业务",
+  "variables": {
+    "excel_path": "C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\420财务050823.xlsx",
+    "sheet_name": "3-报销",
+    "serials": ["1", "2", "3"],
+    "mcp_endpoint": "http://localhost:3030/mcp/execute"
+  },
+  "steps": [
+    {
+      "type": "log",
+      "message": "开始批量处理，共 ${serials.length} 个序号"
+    },
+    {
+      "type": "loop",
+      "item_var": "current_serial",
+      "items": "${serials}",
+      "steps": [
+        {
+          "type": "log",
+          "message": "处理序号: ${current_serial}"
+        },
+        {
+          "type": "set_variable",
+          "name": "serial",
+          "value": "${current_serial}"
+        },
+        {
+          "type": "mcp",
+          "name": "执行报销流程",
+          "prompt": "1. 请你调用Playwright MCP，执行以下命令\n2. 打开https://cwcx.uestc.edu.cn/WFManager/login.jsp\n3. 业务大类：报销业务\n4. 在用户名输入框中输入5130008\n5. 在密码输入框中输入Uestc418\n6. 等待 20 秒\n7. 点击id为zhLogin的登录按钮\n8. 等待网上预约报账按钮出现后，点击\n9. 等待申请报销单按钮出现后，点击\n10. 等待已阅读并同意按钮出现后，点击\n11. 在报销项目号输入框中输入M112023ZHCG0006\n12. 在附件张数输入框中输入2\n13. 在支付方式下拉框中选择个人转卡\n14. 点击下一步按钮",
+          "timeout": 300,
+          "browser": "chrome",
+          "headless": false,
+          "continue_on_error": true
+        },
+        {
+          "type": "wait",
+          "seconds": 5
+        }
+      ]
+    },
+    {
+      "type": "log",
+      "message": "批量处理完成"
+    }
+  ]
+}
+

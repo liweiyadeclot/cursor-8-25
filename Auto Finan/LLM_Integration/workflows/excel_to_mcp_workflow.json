@@ -1,0 +1,78 @@
+{
+  "name": "从Excel生成MCP提示词并执行",
+  "description": "读取Excel文件，为每个序号生成MCP提示词并执行",
+  "variables": {
+    "excel_path": "C:\\Users\\FH\\source\\repos\\Auto Finan\\Auto Finan\\420财务050823.xlsx",
+    "sheet_name": "3-报销",
+    "serials": ["1", "2", "3"],
+    "username": "5130008",
+    "password": "Uestc418",
+    "mcp_endpoint": "http://localhost:3030/mcp/execute"
+  },
+  "steps": [
+    {
+      "type": "log",
+      "message": "开始处理Excel文件，生成MCP提示词并执行"
+    },
+    {
+      "type": "loop",
+      "item_var": "current_serial",
+      "items": "${serials}",
+      "steps": [
+        {
+          "type": "log",
+          "message": "========================================\n处理序号: ${current_serial}\n========================================"
+        },
+        {
+          "type": "excel_to_prompt",
+          "name": "从Excel生成MCP提示词",
+          "excel_path": "${excel_path}",
+          "sheet_name": "${sheet_name}",
+          "serial": "${current_serial}",
+          "use_llm": true,
+          "save_to": "mcp_prompt"
+        },
+        {
+          "type": "condition",
+          "condition": "'${mcp_prompt}' != ''",
+          "if_true": [
+            {
+              "type": "log",
+              "message": "✅ MCP提示词生成成功，开始执行"
+            },
+            {
+              "type": "mcp",
+              "name": "执行报销流程",
+              "prompt": "${mcp_prompt}",
+              "timeout": 300,
+              "browser": "chrome",
+              "headless": false,
+              "save_result_to": "execution_result",
+              "continue_on_error": true
+            },
+            {
+              "type": "log",
+              "message": "执行结果: ${execution_result.status}"
+            }
+          ],
+          "if_false": [
+            {
+              "type": "log",
+              "message": "❌ MCP提示词生成失败，跳过此序号",
+              "level": "ERROR"
+            }
+          ]
+        },
+        {
+          "type": "wait",
+          "seconds": 5
+        }
+      ]
+    },
+    {
+      "type": "log",
+      "message": "所有序号处理完成"
+    }
+  ]
+}
+

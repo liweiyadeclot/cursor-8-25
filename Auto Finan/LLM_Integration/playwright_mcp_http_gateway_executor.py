@@ -266,6 +266,7 @@ def _score_node(node: Dict[str, Any], keywords: List[str], label_text: str = "")
     # 上下文信息
     prev_sibling = (node.get("prevSiblingText") or "").lower()
     row_label = (node.get("rowLabelText") or "").lower()
+    row_cells_text = (node.get("rowCellsText") or "").lower()  # 同一行所有单元格的文本
     parent_text = (node.get("parentText") or "").lower()
     
     # 精确匹配检查：确保不会匹配到错误的字段
@@ -317,12 +318,142 @@ def _score_node(node: Dict[str, Any], keywords: List[str], label_text: str = "")
     
     # 4. 上下文匹配：标签文本在相邻元素或行标签中（高优先级）
     if label_lower and node_tag in ["input", "textarea", "select"]:
+        # 检查标签是否包含序号（如"姓名1"、"工作单位1"）
+        base_label_for_match = label_lower
+        label_number = None
+        number_match = re.search(r'(\d+)$', label_lower)
+        if number_match:
+            label_number = number_match.group(1)
+            base_label_for_match = label_lower[:number_match.start()].rstrip()
+        
         if label_lower in prev_sibling:
             score += 40  # 前一个兄弟元素包含标签文本
         if label_lower in row_label:
             score += 45  # 同一行的标签单元格包含标签文本
+        if base_label_for_match in row_label:
+            score += 40  # 行标签包含基础标签（如"姓名"）
         if label_lower in parent_text:
             score += 20  # 父元素包含标签文本
+        
+        # 特殊处理："起"和"迄"的匹配（即使没有序号也要处理）
+        if base_label_for_match in ["起", "迄"]:
+            # 检查是否是日期选择器（有dateinput属性）
+            node_dateinput = node.get("dateinput")
+            if node_dateinput is not None and node_dateinput != "":
+                score += 80  # 有dateinput属性，最高优先级匹配
+            # 检查ID或name中是否包含对应的模式（即使没有序号）
+            if base_label_for_match == "起":
+                if "_start" in node_id or "_start" in node_name:
+                    score += 90  # ID或name包含_start，最高优先级匹配
+                    # 如果有dateinput属性，额外加分
+                    if node_dateinput is not None and node_dateinput != "":
+                        score += 20
+            elif base_label_for_match == "迄":
+                if "_end" in node_id or "_end" in node_name:
+                    score += 90  # ID或name包含_end，最高优先级匹配
+                    # 如果有dateinput属性，额外加分
+                    if node_dateinput is not None and node_dateinput != "":
+                        score += 20
+            # 检查同一行的表头单元格是否包含"起"或"迄"
+            if base_label_for_match in row_cells_text:
+                score += 50  # 同一行表头包含"起"或"迄"，高优先级匹配
+            # 检查前一个单元格是否包含"起"或"迄"
+            if base_label_for_match in prev_sibling:
+                score += 45  # 前一个单元格包含"起"或"迄"
+        
+        # 特殊处理："起"和"迄"的ID模式匹配（即使没有序号也要处理）
+        if base_label_for_match in ["起", "迄"] and not label_number:
+            # 即使没有序号，也要检查ID或name中是否包含对应的模式
+            if base_label_for_match == "起":
+                # 尝试匹配所有包含 _start 的日期选择器（通常是 _start1_, _start2_ 等）
+                if "_start" in node_id or "_start" in node_name:
+                    node_dateinput = node.get("dateinput")
+                    node_class = (node.get("class") or "").lower()
+                    if node_dateinput is not None and node_dateinput != "" or "date" in node_class:
+                        score += 100  # 匹配到包含_start的日期选择器，最高优先级
+            elif base_label_for_match == "迄":
+                # 尝试匹配所有包含 _end 的日期选择器（通常是 _end1_, _end2_ 等）
+                if "_end" in node_id or "_end" in node_name:
+                    node_dateinput = node.get("dateinput")
+                    node_class = (node.get("class") or "").lower()
+                    if node_dateinput is not None and node_dateinput != "" or "date" in node_class:
+                        score += 100  # 匹配到包含_end的日期选择器，最高优先级
+        
+        # 特殊处理：带序号的标签匹配（如"姓名1"、"工作单位1"）
+        if label_number:
+            # 检查行标签是否包含对应的出差人序号（如"出差人1"）
+            traveler_label = f"出差人{label_number}"
+            if traveler_label in row_label:
+                score += 80  # 行标签包含"出差人1"，这是最高优先级匹配
+                # 如果行标签包含"出差人1"，并且基础标签也在同一行的某个单元格中，给予额外分数
+                # 例如：查找"姓名1"时，行标签是"出差人1"，同一行中有"姓名"单元格
+                if base_label_for_match in row_cells_text:
+                    score += 50  # 同一行中包含基础标签（如"姓名"），额外加分
+                elif base_label_for_match in prev_sibling:
+                    score += 40  # 前一个单元格包含基础标签
+            # 检查ID或name中是否包含序号（如 `_xm1_` 表示第一个出差人的姓名）
+            # 根据字段类型匹配ID模式
+            id_patterns = {
+                "姓名": f"_xm{label_number}_",
+                "工作单位": f"_dw{label_number}_",
+                "单位": f"_dw{label_number}_",
+                "职称": f"_zw{label_number}_",
+                "出差人": f"_gh{label_number}_",
+                "人员类型": f"_zc{label_number}_",  # 人员类型使用 _zc 模式（select下拉框）
+                "省份": f"_sf{label_number}_",  # 省份使用 _sf 模式（select下拉框）
+                "是否安排伙食": f"_hsf{label_number}_",  # 是否安排伙食使用 _hsf 模式（select下拉框）
+                "是否安排交通": f"_jtf{label_number}_",  # 是否安排交通使用 _jtf 模式（select下拉框）
+                "起始时间": f"_start{label_number}_",  # 起始时间使用 _start 模式（input日期选择器）
+                "起": f"_start{label_number}_",  # "起"也使用 _start 模式
+                "结束时间": f"_end{label_number}_",  # 结束时间使用 _end 模式（input日期选择器）
+                "迄": f"_end{label_number}_",  # "迄"也使用 _end 模式
+                "其他交通费": f"_qt{label_number}_",  # 其他交通费使用 _qt 模式（input输入框）
+            }
+            matched_pattern = False
+            for field_name, pattern in id_patterns.items():
+                if field_name in base_label_for_match:
+                    if pattern in node_id or pattern in node_name:
+                        # 额外验证：确保元素类型匹配
+                        # 下拉框字段：人员类型、省份、是否安排伙食、是否安排交通
+                        if field_name in ["人员类型", "省份", "是否安排伙食", "是否安排交通"]:
+                            if node_tag == "select":
+                                score += 80  # 下拉框字段匹配select，最高优先级
+                                matched_pattern = True
+                                break
+                            else:
+                                score -= 50  # 类型不匹配，严重扣分
+                        # 日期选择器字段：起始时间、结束时间、"起"、"迄"
+                        elif field_name in ["起始时间", "结束时间", "起", "迄"]:
+                            if node_tag == "input":
+                                # 检查是否有dateinput属性或class包含date
+                                node_class = (node.get("class") or "").lower()
+                                node_dateinput = node.get("dateinput")  # 直接获取 dateinput 属性
+                                if node_dateinput is not None and node_dateinput != "" or "date" in node_class or "dateinput" in node_class:
+                                    score += 80  # 日期选择器匹配，最高优先级
+                                    matched_pattern = True
+                                    break
+                                else:
+                                    score += 60  # 是input但可能不是日期选择器，给予较高分数
+                                    matched_pattern = True
+                                    break
+                            else:
+                                score -= 50  # 类型不匹配，严重扣分
+                        # 输入框字段：职称、其他交通费
+                        elif field_name in ["职称", "其他交通费"]:
+                            if node_tag == "input":
+                                score += 80  # 输入框字段匹配input，最高优先级
+                                matched_pattern = True
+                                break
+                            else:
+                                score -= 50  # 类型不匹配，严重扣分
+                        # 其他字段（姓名、工作单位、单位、出差人）
+                        else:
+                            score += 70  # 其他字段，高优先级匹配
+                            matched_pattern = True
+                            break
+            # 如果ID中包含序号但模式不匹配，给予较低分数
+            if not matched_pattern and (f"_{label_number}_" in node_id or f"_{label_number}_" in node_name):
+                score += 30  # ID或name中包含序号，但模式不完全匹配
         
         # 特殊处理：radio button 的匹配
         if node_type == "radio" and label_lower:
@@ -363,6 +494,11 @@ def find_node_ref(
     """
     在快照中查找与标签匹配的元素
     
+    支持带序号的标签（如"出差人1"、"出差人2"）：
+    - 提取基础标签和序号
+    - 优先匹配包含完整标签（含序号）的元素
+    - 如果找不到，回退到基础标签匹配
+    
     优先匹配逻辑：
     1. 标签文本在相邻元素（prevSiblingText, rowLabelText）中，且当前元素是输入框
     2. 标签关键词在元素的 id、name 中
@@ -372,8 +508,17 @@ def find_node_ref(
     """
     if not snapshot or not label:
         return None
-    keywords = _tokenize_label(label)
-    field_id = _extract_id_from_text(label)
+    
+    # 提取序号（如果标签以数字结尾，如"出差人1"）
+    base_label = label
+    label_number = None
+    number_match = re.search(r'(\d+)$', label)
+    if number_match:
+        label_number = number_match.group(1)
+        base_label = label[:number_match.start()].rstrip()
+    
+    keywords = _tokenize_label(base_label)
+    field_id = _extract_id_from_text(base_label)
     if field_id:
         keywords.append(field_id.lower())
 
@@ -387,8 +532,21 @@ def find_node_ref(
         tag = (node.get("tag") or "").lower()
         if whitelist and tag not in whitelist:
             continue
+        
         # 传递 label 文本用于上下文匹配
-        score = _score_node(node, keywords, label_text=label)
+        score = _score_node(node, keywords, label_text=base_label)
+        
+        # 如果标签包含序号，检查行标签是否也包含该序号（提高匹配精度）
+        if label_number:
+            row_label = (node.get("rowLabelText") or "").lower()
+            prev_sibling = (node.get("prevSiblingText") or "").lower()
+            # 如果行标签或相邻元素包含完整标签（含序号），给予额外分数
+            if label.lower() in row_label or label.lower() in prev_sibling:
+                score += 30  # 高优先级匹配
+            # 如果行标签包含基础标签和序号（如"出差人1"），也给予分数
+            elif base_label.lower() in row_label and label_number in row_label:
+                score += 25
+        
         if score > best_score:
             second_best_score = best_score
             best_score = score
@@ -449,6 +607,36 @@ def validate_element_match(node: Dict[str, Any], label: str) -> bool:
         # 如果行标签或相邻元素包含"用户名"，接受
         if "用户名" in row_label or "用户名" in prev_sibling:
             return True
+    
+    # 验证人员类型（应该是select下拉框）
+    if "人员类型" in label:
+        node_tag = (node.get("tag") or "").lower()
+        # 人员类型应该是select
+        if node_tag == "select":
+            # 检查ID或name中是否包含 _zc 模式（人员类型的ID模式）
+            if f"_zc" in node_id or f"_zc" in node_name:
+                return True
+            # 如果行标签或相邻元素包含"人员类型"，也接受
+            if "人员类型" in row_label or "人员类型" in prev_sibling:
+                return True
+        # 如果是input，拒绝（可能是误匹配到职称）
+        if node_tag == "input":
+            return False
+    
+    # 验证职称（应该是input输入框）
+    if "职称" in label and "人员类型" not in label:
+        node_tag = (node.get("tag") or "").lower()
+        # 职称应该是input
+        if node_tag == "input":
+            # 检查ID或name中是否包含 _zw 模式（职称的ID模式）
+            if f"_zw" in node_id or f"_zw" in node_name:
+                return True
+            # 如果行标签或相邻元素包含"职称"，也接受
+            if "职称" in row_label or "职称" in prev_sibling:
+                return True
+        # 如果是select，拒绝（可能是误匹配到人员类型）
+        if node_tag == "select":
+            return False
     
     # 其他字段，默认通过验证
     return True
@@ -588,15 +776,18 @@ def capture_dom_snapshot_with_frames(page: Page) -> Tuple[List[Dict[str, Any]], 
                 return (sibling.innerText || '').trim().substring(0, 100);
             }
             // 如果是表格单元格，尝试获取同一行的其他单元格
-            if (el.tagName === 'TD' || el.closest('td')) {
-                const td = el.tagName === 'TD' ? el : el.closest('td');
+            // 对于输入框、下拉框等元素，需要找到它们所在的 <td>，然后获取同一行的其他单元格
+            const td = el.tagName === 'TD' ? el : el.closest('td');
+            if (td) {
                 const tr = td.parentElement;
-                if (tr) {
+                if (tr && tr.tagName === 'TR') {
                     const cells = Array.from(tr.children);
                     const idx = cells.indexOf(td);
                     if (direction === 'prev' && idx > 0) {
+                        // 获取前一个单元格的文本（通常是标签，如"姓名"）
                         return (cells[idx - 1].innerText || '').trim().substring(0, 100);
                     } else if (direction === 'next' && idx < cells.length - 1) {
+                        // 获取后一个单元格的文本
                         return (cells[idx + 1].innerText || '').trim().substring(0, 100);
                     }
                 }
@@ -633,16 +824,21 @@ def capture_dom_snapshot_with_frames(page: Page) -> Tuple[List[Dict[str, Any]], 
                 if (parent) {
                     nodeData.parentText = (parent.innerText || '').trim().substring(0, 200);
                     // 如果是表格，获取表头或标签单元格的文本
-                    if (parent.tagName === 'TD' || parent.closest('td')) {
-                        const td = parent.tagName === 'TD' ? parent : parent.closest('td');
+                    // 对于输入框、下拉框等元素，需要找到它们所在的 <td>，然后获取同一行第一个单元格的文本
+                    const td = el.tagName === 'TD' ? el : el.closest('td');
+                    if (td) {
                         const tr = td.parentElement;
-                        if (tr) {
+                        if (tr && tr.tagName === 'TR') {
                             const cells = Array.from(tr.children);
                             const idx = cells.indexOf(td);
-                            // 获取同一行第一个单元格的文本（通常是标签）
-                            if (idx > 0 && cells[0]) {
+                            // 获取同一行第一个单元格的文本（通常是标签，如"出差人1"）
+                            if (cells[0]) {
                                 nodeData.rowLabelText = (cells[0].innerText || '').trim().substring(0, 100);
                             }
+                            // 同时获取同一行中所有单元格的文本（用于匹配字段标签）
+                            // 例如：查找"姓名1"时，可以检查同一行中是否有"姓名"单元格
+                            const rowCellsText = cells.map(cell => (cell.innerText || '').trim()).join(' ');
+                            nodeData.rowCellsText = rowCellsText.substring(0, 200);
                         }
                     }
                 }
@@ -665,6 +861,17 @@ def capture_dom_snapshot_with_frames(page: Page) -> Tuple[List[Dict[str, Any]], 
                 const className = el.getAttribute('class');
                 if (className) {
                     nodeData.class = className;
+                }
+                // 添加 dateinput 属性（用于日期选择器识别）
+                const dateinput = el.getAttribute('dateinput');
+                if (dateinput) {
+                    nodeData.dateinput = dateinput;
+                }
+                // 对于 input 元素，也检查是否有 dateinput 属性或 class 包含 date
+                if (el.tagName === 'INPUT') {
+                    if (!nodeData.dateinput && el.hasAttribute('dateinput')) {
+                        nodeData.dateinput = 'true';
+                    }
                 }
                 data.push(nodeData);
             }
@@ -854,14 +1061,50 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
                 label, value = match.groups()
                 logs.append(f"正在在 {label} 输入框中输入: {value.strip()}")
                 
+                # 提取序号（如果标签以数字结尾，如"出差人1"）
+                base_label = label
+                label_number = None
+                number_match = re.search(r'(\d+)$', label)
+                if number_match:
+                    label_number = number_match.group(1)
+                    base_label = label[:number_match.start()].rstrip()
+                
                 # 准备备选选择器（仅在快照匹配失败时使用）
                 default_selectors = [
-                    f"label:has-text('{label}') + input",
+                    f"label:has-text('{label}') + input",  # 完整标签匹配（含序号）
                     f"input[placeholder*='{label}']",
-                    f"//td[contains(text(), '{label}')]/following-sibling::td//input",
+                    f"//td[contains(text(), '{label}')]/following-sibling::td//input",  # 完整标签匹配
                 ]
-                selectors = _build_selector_candidates(label, INPUT_SELECTOR_HINTS, default_selectors)
-                field_id = _extract_id_from_text(label)
+                
+                # 如果标签包含序号，添加基于行的选择器
+                if label_number:
+                    # 方法1：通过"出差人N"行查找对应的字段
+                    # 例如：查找"姓名1"时，先找到"出差人1"行，然后在该行中找"姓名"列
+                    default_selectors.extend([
+                        f"//td[contains(text(), '出差人{label_number}')]/../td[contains(text(), '{base_label}')]/following-sibling::td//input",
+                        f"//tr[.//td[contains(text(), '出差人{label_number}')]]//td[contains(text(), '{base_label}')]/following-sibling::td//input",
+                        f"//tr[.//td[contains(text(), '出差人{label_number}')]]//input[contains(@id, '_{label_number}_')]",
+                        f"//tr[.//td[contains(text(), '出差人{label_number}')]]//input[contains(@name, '_{label_number}_')]",
+                    ])
+                    # 方法2：通过ID模式匹配（如 `_xm1_` 表示第一个出差人的姓名）
+                    if base_label == "姓名" or "name" in base_label.lower() or "xm" in base_label.lower():
+                        default_selectors.insert(0, f"input[id*='_xm{label_number}_']")
+                        default_selectors.insert(0, f"input[name*='_xm{label_number}_']")
+                    elif base_label == "工作单位" or "单位" in base_label or "dw" in base_label.lower():
+                        default_selectors.insert(0, f"input[id*='_dw{label_number}_']")
+                        default_selectors.insert(0, f"input[name*='_dw{label_number}_']")
+                    elif base_label == "职称" or "zw" in base_label.lower():
+                        default_selectors.insert(0, f"input[id*='_zw{label_number}_']")
+                        default_selectors.insert(0, f"input[name*='_zw{label_number}_']")
+                    elif base_label == "出差人" or "gh" in base_label.lower():
+                        default_selectors.insert(0, f"input[id*='_gh{label_number}_']")
+                        default_selectors.insert(0, f"input[name*='_gh{label_number}_']")
+                    elif "其他交通费" in base_label or "qt" in base_label.lower():
+                        default_selectors.insert(0, f"input[id*='_qt{label_number}_']")
+                        default_selectors.insert(0, f"input[name*='_qt{label_number}_']")
+                
+                selectors = _build_selector_candidates(base_label, INPUT_SELECTOR_HINTS, default_selectors)
+                field_id = _extract_id_from_text(base_label)
                 if field_id:
                     selectors.insert(0, f"#{field_id}")
                 
@@ -961,8 +1204,17 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
                 label, value = match.groups()
                 value = value.strip().strip('"').strip("'")
                 logs.append(f"正在在 {label} 下拉框中选择: {value}")
+                
+                # 提取序号（如果标签以数字结尾，如"职称1"）
+                base_label = label
+                label_number = None
+                number_match = re.search(r'(\d+)$', label)
+                if number_match:
+                    label_number = number_match.group(1)
+                    base_label = label[:number_match.start()].rstrip()
+                
                 default_selectors = [
-                    f"label:has-text('{label}') + select",
+                    f"label:has-text('{label}') + select",  # 完整标签匹配（含序号）
                     f"select[name*='{label}']",
                     f"select[id*='{label}']",
                     f"//label[contains(text(), '{label}')]/following-sibling::select[1]",
@@ -972,8 +1224,33 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
                     f"//td[@class='iscap' and contains(text(), '{label}')]/following-sibling::td//select",
                     f"//td[@class='iscap' and contains(text(), '{label}')]/following-sibling::td[1]//select"
                 ]
-                selectors = _build_selector_candidates(label, DROPDOWN_SELECTOR_HINTS, default_selectors)
-                selector_id = _extract_id_from_text(label)
+                
+                # 如果标签包含序号，添加基于行的选择器
+                if label_number:
+                    # 方法1：通过"出差人N"行查找对应的字段
+                    default_selectors.extend([
+                        f"//td[contains(text(), '出差人{label_number}')]/../td[contains(text(), '{base_label}')]/following-sibling::td//select",
+                        f"//tr[.//td[contains(text(), '出差人{label_number}')]]//td[contains(text(), '{base_label}')]/following-sibling::td//select",
+                        f"//tr[.//td[contains(text(), '出差人{label_number}')]]//select[contains(@id, '_{label_number}_')]",
+                        f"//tr[.//td[contains(text(), '出差人{label_number}')]]//select[contains(@name, '_{label_number}_')]",
+                    ])
+                    # 方法2：通过ID模式匹配
+                    if "人员类型" in base_label or "zc" in base_label.lower():
+                        default_selectors.insert(0, f"select[id*='_zc{label_number}_']")
+                        default_selectors.insert(0, f"select[name*='_zc{label_number}_']")
+                    elif "省份" in base_label or "sf" in base_label.lower():
+                        default_selectors.insert(0, f"select[id*='_sf{label_number}_']")
+                        default_selectors.insert(0, f"select[name*='_sf{label_number}_']")
+                    elif "是否安排伙食" in base_label or "hsf" in base_label.lower():
+                        default_selectors.insert(0, f"select[id*='_hsf{label_number}_']")
+                        default_selectors.insert(0, f"select[name*='_hsf{label_number}_']")
+                    elif "是否安排交通" in base_label or "jtf" in base_label.lower():
+                        default_selectors.insert(0, f"select[id*='_jtf{label_number}_']")
+                        default_selectors.insert(0, f"select[name*='_jtf{label_number}_']")
+                    # 注意：职称是输入框，不是下拉框，所以这里不处理职称
+                
+                selectors = _build_selector_candidates(base_label, DROPDOWN_SELECTOR_HINTS, default_selectors)
+                selector_id = _extract_id_from_text(base_label)
                 if selector_id:
                     selectors.insert(0, f"select#{selector_id}")
                 
@@ -993,27 +1270,34 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
                     if current_snapshot:
                         ref = find_node_ref(current_snapshot, label, tag_whitelist=["select"])
                         if ref:
-                            # 尝试在所有 frame 中查找元素
-                            result = find_element_by_ref_in_frames(page, ref)
-                            if result:
-                                frame, locator = result
-                                try:
-                                    # 尝试通过文本选择（优先）
+                            # 验证匹配的元素是否真的正确
+                            matched_node = next((n for n in current_snapshot if n.get("ref") == ref), None)
+                            if matched_node and not validate_element_match(matched_node, label):
+                                # 验证失败，跳过这个匹配，继续尝试其他方法
+                                if attempt == 0:
+                                    logs.append(f"⚠️  快照匹配到下拉框但验证失败，继续查找...")
+                            else:
+                                # 验证通过，尝试在所有 frame 中查找元素
+                                result = find_element_by_ref_in_frames(page, ref)
+                                if result:
+                                    frame, locator = result
                                     try:
-                                        locator.first.select_option(label=value, timeout=5000)
-                                        logs.append(f"✅ 已选择: {value} (通过快照匹配，文本选择)")
-                                        page.wait_for_timeout(500)
-                                        return True
-                                    except Exception:
-                                        # 如果文本选择失败，尝试通过值选择
-                                        locator.first.select_option(value, timeout=5000)
-                                        logs.append(f"✅ 已选择: {value} (通过快照匹配，值选择)")
-                                        page.wait_for_timeout(500)
-                                        return True
-                                except Exception as e:
-                                    if attempt == 0:
-                                        logs.append(f"⚠️  找到下拉框但选择失败: {str(e)[:100]}")
-                                    pass
+                                        # 尝试通过文本选择（优先）
+                                        try:
+                                            locator.first.select_option(label=value, timeout=5000)
+                                            logs.append(f"✅ 已选择: {value} (通过快照匹配，文本选择)")
+                                            page.wait_for_timeout(500)
+                                            return True
+                                        except Exception:
+                                            # 如果文本选择失败，尝试通过值选择
+                                            locator.first.select_option(value, timeout=5000)
+                                            logs.append(f"✅ 已选择: {value} (通过快照匹配，值选择)")
+                                            page.wait_for_timeout(500)
+                                            return True
+                                    except Exception as e:
+                                        if attempt == 0:
+                                            logs.append(f"⚠️  找到下拉框但选择失败: {str(e)[:100]}")
+                                        pass
                     
                     # 第二步：如果快照匹配失败，使用选择器作为备选
                     for selector in selectors:
@@ -1504,11 +1788,90 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
             if match:
                 label, date = match.groups()
                 logs.append(f"正在选择日期 {label}: {date.strip()}")
+                
+                # 提取序号（如果标签以数字结尾，如"起始时间1"）
+                base_label = label
+                label_number = None
+                number_match = re.search(r'(\d+)$', label)
+                if number_match:
+                    label_number = number_match.group(1)
+                    base_label = label[:number_match.start()].rstrip()
+                
                 selectors = [
                     f"label:has-text('{label}') + input[type='date']",
                     f"input[type='date'][name*='{label}']",
-                    f"input[type='text'][name*='{label}']"
+                    f"input[type='text'][name*='{label}']",
+                    f"input[class*='date'][name*='{label}']",
+                    f"input[class*='dateInput'][name*='{label}']",
                 ]
+                
+                # 处理"起"和"迄"这种简短的标签
+                if base_label == "起" or base_label == "起始时间" or "起始" in base_label or "start" in base_label.lower():
+                    if label_number:
+                        # 优先匹配带dateinput属性的日期选择器
+                        selectors.insert(0, f"input[id*='_start{label_number}_'][dateinput='true']")
+                        selectors.insert(0, f"input[name*='_start{label_number}_'][dateinput='true']")
+                        selectors.insert(0, f"input[id*='_start{label_number}_'][class*='date']")
+                        selectors.insert(0, f"input[name*='_start{label_number}_'][class*='date']")
+                        selectors.insert(0, f"input[id*='_start{label_number}_']")
+                        selectors.insert(0, f"input[name*='_start{label_number}_']")
+                    else:
+                        # 如果没有序号，尝试匹配第一个（通常是1）
+                        selectors.insert(0, f"input[id*='_start1_'][dateinput='true']")
+                        selectors.insert(0, f"input[name*='_start1_'][dateinput='true']")
+                        selectors.insert(0, f"input[id*='_start1_'][class*='date']")
+                        selectors.insert(0, f"input[name*='_start1_'][class*='date']")
+                        selectors.insert(0, f"input[id*='_start1_']")
+                        selectors.insert(0, f"input[name*='_start1_']")
+                        # 也尝试匹配所有带 _start 的日期选择器
+                        selectors.insert(0, f"input[id*='_start'][dateinput='true']")
+                        selectors.insert(0, f"input[name*='_start'][dateinput='true']")
+                        selectors.insert(0, f"input[id*='_start'][class*='date']")
+                        selectors.insert(0, f"input[name*='_start'][class*='date']")
+                elif base_label == "迄" or base_label == "结束时间" or "结束" in base_label or "end" in base_label.lower():
+                    if label_number:
+                        # 优先匹配带dateinput属性的日期选择器
+                        selectors.insert(0, f"input[id*='_end{label_number}_'][dateinput='true']")
+                        selectors.insert(0, f"input[name*='_end{label_number}_'][dateinput='true']")
+                        selectors.insert(0, f"input[id*='_end{label_number}_'][class*='date']")
+                        selectors.insert(0, f"input[name*='_end{label_number}_'][class*='date']")
+                        selectors.insert(0, f"input[id*='_end{label_number}_']")
+                        selectors.insert(0, f"input[name*='_end{label_number}_']")
+                    else:
+                        # 如果没有序号，尝试匹配第一个（通常是1）
+                        selectors.insert(0, f"input[id*='_end1_'][dateinput='true']")
+                        selectors.insert(0, f"input[name*='_end1_'][dateinput='true']")
+                        selectors.insert(0, f"input[id*='_end1_'][class*='date']")
+                        selectors.insert(0, f"input[name*='_end1_'][class*='date']")
+                        selectors.insert(0, f"input[id*='_end1_']")
+                        selectors.insert(0, f"input[name*='_end1_']")
+                        # 也尝试匹配所有带 _end 的日期选择器
+                        selectors.insert(0, f"input[id*='_end'][dateinput='true']")
+                        selectors.insert(0, f"input[name*='_end'][dateinput='true']")
+                        selectors.insert(0, f"input[id*='_end'][class*='date']")
+                        selectors.insert(0, f"input[name*='_end'][class*='date']")
+                
+                # 如果标签包含序号，添加基于行的选择器
+                if label_number:
+                    selectors.extend([
+                        f"//tr[.//td[contains(text(), '省份{label_number}')]]//input[contains(@id, '_{label_number}_') and contains(@class, 'date')]",
+                        f"//tr[.//td[contains(text(), '省份{label_number}')]]//input[contains(@name, '_{label_number}_') and contains(@class, 'date')]",
+                    ])
+                
+                # 对于"起"和"迄"，添加基于表头的选择器（简化版本）
+                if base_label == "起" or base_label == "起始时间" or "起始" in base_label or "start" in base_label.lower():
+                    # 通过表头"起"列来查找日期选择器
+                    # 方法：找到包含"起"表头的表格，然后在数据行中查找包含 _start 的日期选择器
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '起')]]//input[@dateinput='true'][contains(@id, '_start')]")
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '起')]]//input[contains(@class, 'date')][contains(@id, '_start')]")
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '起')]]//input[@dateinput='true'][contains(@name, '_start')]")
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '起')]]//input[contains(@class, 'date')][contains(@name, '_start')]")
+                elif base_label == "迄" or base_label == "结束时间" or "结束" in base_label or "end" in base_label.lower():
+                    # 通过表头"迄"列来查找日期选择器
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '迄')]]//input[@dateinput='true'][contains(@id, '_end')]")
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '迄')]]//input[contains(@class, 'date')][contains(@id, '_end')]")
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '迄')]]//input[@dateinput='true'][contains(@name, '_end')]")
+                    selectors.insert(0, f"//table[.//td[@class='iscap' and contains(text(), '迄')]]//input[contains(@class, 'date')][contains(@name, '_end')]")
                 for attempt in range(MAX_STEP_RETRIES):
                     # 使用支持 iframe 的快照捕获
                     if attempt == 0 and snapshot is not None:
@@ -1520,32 +1883,55 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
                     if current_snapshot:
                         ref = find_node_ref(current_snapshot, label, tag_whitelist=["input"])
                         if ref:
-                            # 尝试在所有 frame 中查找元素
-                            result = find_element_by_ref_in_frames(page, ref)
-                            if result:
-                                frame, locator = result
-                                try:
-                                    locator.first.fill(date.strip(), timeout=5000)
-                                    logs.append(f"✅ 已选择日期: {date.strip()} (在 iframe 中)")
-                                    return True
-                                except Exception:
-                                    try:
-                                        frame.evaluate(
-                                            """(ref, value) => {
-                                                const el = document.querySelector(`[data-mcp-ref="${ref}"]`);
-                                                if (el) {
-                                                    el.value = value;
-                                                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                                                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                                                }
-                                            }""",
-                                            ref,
-                                            date.strip()
-                                        )
-                                        logs.append(f"✅ 已选择日期: {date.strip()} (JS, 在 iframe 中)")
-                                        return True
-                                    except Exception:
-                                        pass
+                            # 验证匹配的元素是否真的正确
+                            matched_node = next((n for n in current_snapshot if n.get("ref") == ref), None)
+                            if matched_node:
+                                # 检查是否是日期选择器（有dateinput属性或class包含date）
+                                node_class = (matched_node.get("class") or "").lower()
+                                node_id = (matched_node.get("id") or "").lower()
+                                node_name = (matched_node.get("name") or "").lower()
+                                node_dateinput = matched_node.get("dateinput")  # 直接获取 dateinput 属性
+                                # 检查是否是日期选择器
+                                is_date_input = (
+                                    node_dateinput is not None and node_dateinput != ""  # 有 dateinput 属性
+                                    or "date" in node_class  # class 包含 date
+                                    or "dateinput" in node_class  # class 包含 dateinput
+                                    or "_start" in node_id or "_end" in node_id  # ID 包含 _start 或 _end（日期字段模式）
+                                )
+                                if not is_date_input:
+                                    # 不是日期选择器，跳过这个匹配
+                                    if attempt == 0:
+                                        node_tag = matched_node.get("tag", "")
+                                        node_id_display = matched_node.get("id", "")[:50]
+                                        node_class_display = matched_node.get("class", "")[:50]
+                                        logs.append(f"⚠️  快照匹配到元素但不是日期选择器: tag={node_tag}, id={node_id_display}, class={node_class_display}, dateinput={node_dateinput}，继续查找...")
+                                else:
+                                    # 验证通过，尝试在所有 frame 中查找元素
+                                    result = find_element_by_ref_in_frames(page, ref)
+                                    if result:
+                                        frame, locator = result
+                                        try:
+                                            locator.first.fill(date.strip(), timeout=5000)
+                                            logs.append(f"✅ 已选择日期: {date.strip()} (通过快照匹配)")
+                                            return True
+                                        except Exception:
+                                            try:
+                                                frame.evaluate(
+                                                    """(ref, value) => {
+                                                        const el = document.querySelector(`[data-mcp-ref="${ref}"]`);
+                                                        if (el) {
+                                                            el.value = value;
+                                                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                                                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                                                        }
+                                                    }""",
+                                                    ref,
+                                                    date.strip()
+                                                )
+                                                logs.append(f"✅ 已选择日期: {date.strip()} (通过快照匹配，JS)")
+                                                return True
+                                            except Exception:
+                                                pass
                     
                     # 尝试使用选择器在所有 frame 中查找
                     for selector in selectors:
@@ -1553,9 +1939,30 @@ def execute_step(page: Page, step: str, logs: List[str], snapshot: Optional[List
                         if result:
                             frame, locator = result
                             try:
-                                locator.first.fill(date.strip(), timeout=5000)
-                                logs.append(f"✅ 已选择日期: {date.strip()} (在 iframe 中)")
-                                return True
+                                # 验证元素是否是日期选择器
+                                try:
+                                    element = locator.first
+                                    # 检查元素属性
+                                    dateinput_attr = element.get_attribute("dateinput")
+                                    class_attr = element.get_attribute("class") or ""
+                                    element_id = element.get_attribute("id") or ""
+                                    if dateinput_attr == "true" or "date" in class_attr.lower() or "_start" in element_id or "_end" in element_id:
+                                        element.fill(date.strip(), timeout=5000)
+                                        logs.append(f"✅ 已选择日期: {date.strip()} (通过选择器: {selector[:50]})")
+                                        return True
+                                    else:
+                                        if attempt == 0:
+                                            logs.append(f"⚠️  选择器匹配到元素但不是日期选择器: {selector[:50]}, id={element_id[:50]}, class={class_attr[:50]}, dateinput={dateinput_attr}")
+                                except Exception as e:
+                                    if attempt == 0:
+                                        logs.append(f"⚠️  验证元素时出错: {str(e)[:100]}")
+                                # 如果验证失败，尝试直接填写（可能是验证逻辑有问题）
+                                try:
+                                    locator.first.fill(date.strip(), timeout=5000)
+                                    logs.append(f"✅ 已选择日期: {date.strip()} (通过选择器: {selector[:50]})")
+                                    return True
+                                except Exception:
+                                    continue
                             except Exception:
                                 continue
                     
